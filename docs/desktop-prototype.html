@@ -48,6 +48,39 @@ dialog:has(#import-form){max-width:560px}
 #import-form #import-error:empty{display:none}
 #import-form .dialog-foot{padding:14px 22px}
 @media(max-width:460px){#import-form .import-options{grid-template-columns:minmax(0,1fr)}#import-form .dialog-body{padding:16px 18px;gap:14px}#import-form .dialog-head,#import-form .dialog-foot{padding-left:18px;padding-right:18px}}
+
+/* Scene management is a flat index and one editor, aligned to the app frame. */
+.scene-workspace{display:flex;flex-direction:column;min-height:0;overflow:clip}
+.scene-page-header{display:flex;align-items:baseline;gap:14px;padding:24px 28px 20px;border-bottom:1px solid var(--line);flex:none}
+.scene-page-header h1{font-size:22px}
+.scene-split{display:grid;grid-template-columns:220px minmax(0,1fr);flex:1;min-height:0}
+.scene-library{display:flex;flex-direction:column;gap:14px;border-right:1px solid var(--line);padding:20px 12px;min-height:0}
+.scene-library-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 9px}
+.scene-library-head h2{font-size:12px;font-weight:500;color:var(--muted)}
+.scene-new,.scene-ai{display:inline-flex;align-items:center;justify-content:center;gap:5px;border-radius:5px;min-height:30px;padding:5px 7px;font-size:12px;color:var(--muted)}
+.scene-new:hover,.scene-ai:hover{background:var(--accent-soft);color:var(--accent)}
+.scene-new svg,.scene-ai svg{width:14px;height:14px}
+.scene-index{display:flex;flex-direction:column;gap:3px;overflow-y:auto;min-height:0}
+.scene-list-row{display:flex;flex-direction:column;gap:4px;padding:11px 12px;border-radius:5px;text-align:left;min-width:0}
+.scene-list-row strong{font-size:13px;font-weight:500;overflow-wrap:anywhere}
+.scene-list-row .scene-row-meta{font-size:11px;color:var(--muted)}
+.scene-list-row:hover{background:var(--surface)}
+.scene-list-row.active{background:var(--accent-soft);color:var(--accent)}
+.scene-editor{display:flex;flex-direction:column;min-width:0;min-height:0}
+.scene-editor-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:20px 28px 12px;flex:none}
+.scene-editor-head h2{font-size:16px;font-weight:600}
+.scene-fields{display:flex;flex-direction:column;gap:18px;padding:4px 28px 26px;overflow-y:auto;min-height:0;flex:1}
+.scene-condition-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
+.scene-fields .scene-description{min-height:96px}
+.scene-prompt-flat{min-height:154px;resize:vertical;font-size:13px;line-height:1.9}
+.scene-fields .scene-output{min-height:126px}
+.scene-editor-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:14px 28px;border-top:1px solid var(--line);background:var(--paper);flex:none}
+.scene-editor-footer #scene-error{flex-basis:100%}
+.scene-editor-footer #scene-error:empty{display:none}
+.scene-save-meta{display:flex;align-items:center;gap:15px;min-width:0}
+.app.scene-mode .sidebar .scenes{display:none}
+@media(max-width:1050px){.scene-split{grid-template-columns:190px minmax(0,1fr)}.scene-condition-fields{grid-template-columns:minmax(0,1fr);gap:18px}}
+@media(max-width:720px){.scene-page-header{padding:18px 18px 15px}.scene-page-header h1{font-size:21px}.scene-split{display:flex;flex-direction:column;min-height:0}.scene-library{padding:10px 12px 12px;border-right:0;border-bottom:1px solid var(--line);gap:5px;flex:none}.scene-library-head{padding:0 5px}.scene-index{flex-direction:row;overflow-x:auto;overflow-y:clip;gap:5px;padding-bottom:2px}.scene-list-row{flex:none;min-width:130px;max-width:180px;padding:8px 10px;gap:2px}.scene-list-row strong{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.scene-list-row .scene-row-meta{font-size:10px}.scene-editor{flex:1;min-height:0}.scene-editor-head{padding:13px 18px 9px}.scene-editor-head h2{font-size:15px}.scene-fields{padding:3px 18px 20px;gap:16px}.scene-editor-footer{padding:12px 18px}.scene-editor-footer .btn{font-size:12px;padding:7px 12px}.scene-save-meta{gap:10px}.scene-save-meta .small{font-size:10px}.scene-save-meta .link-btn{font-size:11px}}
 </style>
 </head>
 <body>
@@ -93,7 +126,7 @@ function storagePreview(form){const result=validateStorage(form);document.getEle
 function renameSave(form){const r=current(),d=new FormData(form),title=String(d.get('title')||'').trim(),file=String(d.get('file')||'').trim(),sync=d.has('renameFile');let error='';if(!title)error='请填写录音标题。';else if(sync&&(!file||/[\\/<>:"|?*\x00-\x1f]/.test(file)))error='文件名不能包含路径分隔符或非法字符。';else if(sync&&!/\.m4a$/i.test(file))error='请保留原始 .m4a 扩展名。';else if(sync&&records.some(x=>x.id!==r.id&&x.file.toLowerCase()===file.toLowerCase()))error='已有同名录音文件，请换一个文件名。';document.getElementById('rename-error').textContent=error;if(error)return;r.title=title;if(sync)r.file=file;closeDialog();render(true);toast(sync?'已更新示例标题与文件名，未修改真实文件。':'已更新录音标题，原始文件名保持不变。')}
 function saveSpeakers(form){const r=current(),d=new FormData(form);for(let i=0;i<r.speakers.length;i++)if(!String(d.get('name'+i)||'').trim()){document.getElementById('speaker-error').textContent='每位参与者都需要名称，也可以保留默认编号。';return}r.speakers=r.speakers.map((p,i)=>({name:String(d.get('name'+i)).trim(),role:d.get('role'+i)}));r.dirty=true;closeDialog();render(true);toast('示例角色已更新，重新整理后用于新的总结。')}
 function switchView(view){ui.view=view;ui.mobileList=false;ui.menu=false;render()}
-document.getElementById('dialog').addEventListener('close',()=>{if(lastFocus?.isConnected&&lastFocus!==document.body)lastFocus.focus();else{const heading=document.querySelector('.main h1,.page-head h1');if(heading){heading.tabIndex=-1;heading.focus()}}});
+document.getElementById('dialog').addEventListener('close',()=>{if(lastFocus?.isConnected&&lastFocus!==document.body)lastFocus.focus();else{const heading=document.querySelector('.main h1,.page-head h1,.scene-page-header h1');if(heading){heading.tabIndex=-1;heading.focus()}}});
 document.addEventListener('keydown',e=>{const modal=document.getElementById('dialog');if(e.key==='Tab'&&!e.ctrlKey&&!e.metaKey&&modal.open){const controls=[...modal.querySelectorAll('button:not(:disabled),input:not(:disabled):not([type=hidden]),select:not(:disabled),textarea:not(:disabled),a[href]')].filter(x=>x.getClientRects().length&&getComputedStyle(x).visibility!=='hidden');if(controls.length){e.preventDefault();const at=controls.indexOf(document.activeElement);controls[(at+(e.shiftKey?-1:1)+controls.length)%controls.length].focus()}return}if(e.key==='Escape'&&document.getElementById('dialog').open){e.preventDefault();closeDialog();return}if(e.target.matches('[role="tab"]')&&['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const tabs=[...e.target.closest('[role="tablist"]').querySelectorAll('[role="tab"]')],i=tabs.indexOf(e.target),next=e.key==='Home'?0:e.key==='End'?tabs.length-1:(i+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;const tab=tabs[next],action=tab.dataset.action,id=tab.dataset.id;tab.click();document.querySelector('[data-action="'+action+'"][data-id="'+id+'"]')?.focus()}if(e.key==='Escape'&&ui.menu){ui.menu=false;render(true)}});
 
 const ui={view:'library',filter:'all',search:'',selected:'r1',tab:'summary',evidence:matchMedia('(min-width:1060px)').matches?'s04':null,mobileList:false,settingsTab:'models',scene:'technical',menu:false,empty:false,playing:false,position:1122,speed:1,transcriptSpeaker:'all',preview:false,batchId:null,generatorFailOnce:false};
@@ -142,7 +175,7 @@ function recordRows(){const list=filtered();return list.length?list.map(recordRo
 function cite(id){const s=recordSources(current()).find(x=>x.id===id);return s?'<button class="cite '+(ui.evidence===id?'selected':'')+'" data-action="cite" data-id="'+id+'" aria-label="查看 '+time(s.at)+' 原文">'+icon('link')+time(s.at)+'</button>':'<span class="pill">来源未载入</span>'}
 function render(preserve=false){
  const scroll=preserve?document.querySelector('.reading')?.scrollTop:0,app=document.getElementById('app'),focus=document.activeElement,searchFocused=focus?.id==='record-search',caret=searchFocused?focus.selectionStart:0;
- app.className='app'+(ui.mobileList?' show-list':'');
+ app.className='app'+(ui.mobileList?' show-list':'')+(ui.view==='rules'?' scene-mode':'');
  app.innerHTML=sidebar()+(ui.view==='library'?listPanel()+detail():ui.view==='settings'?settingsPage():ui.view==='batch'?batchPage():rulesPage());
  if(preserve&&scroll)document.querySelector('.reading')?.scrollTo(0,scroll);if(searchFocused){const field=document.getElementById('record-search');field?.focus();field?.setSelectionRange(caret,caret)}
 }
@@ -158,11 +191,35 @@ function batchPage(){
 }
 function routingReview(r){return '<div class="reading-inner"><span class="pill warn">AI 匹配需要确认</span><h2 class="summary-heading">这条对话，适合怎样整理？</h2><p class="lede">'+esc(r.routing?.reason||'尚未匹配到明确场景。')+'</p><div class="notice">'+icon('file')+'<div>转写已保留；确认场景后从内容整理阶段继续，不重做前面的工作。</div></div><div class="route-candidates">'+(r.routing?.candidates||[]).map(id=>'<button class="route-candidate" data-action="confirm-scene" data-record="'+r.id+'" data-id="'+id+'"><strong>'+esc(sceneName(id))+'</strong><span>按这个场景继续</span>'+icon('chevron')+'</button>').join('')+'</div><form id="route-form" class="stack"><div class="field"><label for="route-scene">或选择一个已启用场景</label><select class="input" id="route-scene" name="scene">'+sceneOptions('')+'</select></div><button class="btn primary" type="submit">确认场景并继续</button></form><div class="row wrap"><button class="link-btn" data-action="new-scene-from-record" data-id="'+r.id+'">用关键词创建新场景</button><button class="link-btn" data-action="batch">先处理其他录音</button></div><div class="preview-pane"><h3>用来判断的虚构内容样例</h3>'+recordSources(r).map(s=>'<p><span class="mono muted">'+time(s.at)+'</span> '+esc(s.text)+'</p>').join('')+'<p class="small muted">真实产品依据转写内容和来源片段判断。这里没有读取真实音频。</p></div></div>'}
 
-function rulesPage(){return '<main class="view-full"><header class="page-head"><div><div class="breadcrumb">教 AI 怎样理解和整理一类对话</div><h1 style="margin-top:7px">整理场景</h1><p>一个场景，包含何时使用、怎样整理，以及输出什么。</p></div><button class="btn primary" data-action="new-scene">'+icon('plus')+'新建场景</button></header><div class="page-content"><div class="ai-flow"><span>写几个关键词</span>'+icon('chevron')+'<span>AI 补全场景草稿</span>'+icon('chevron')+'<span>确认启用，自动用于新录音</span></div>'+sceneEditor()+'</div></main>'}
+function rulesPage(){return '<main class="view-full scene-workspace"><header class="scene-page-header"><h1>整理场景</h1><span class="small muted">'+scenes.filter(s=>s.enabled&&!s.draft).length+' 个已启用</span></header>'+sceneEditor()+'</main>'}
 function sceneEditor(){
  const p=scenes.find(s=>s.id===ui.scene)||scenes[0],v=drafts[p.id]||p;
- return '<div class="template-layout"><aside class="template-list" aria-label="整理场景列表">'+scenes.map(s=>'<button class="template-item '+(p.id===s.id?'active':'')+'" data-action="scene" data-id="'+esc(s.id)+'"><strong>'+esc(s.name)+'</strong><span class="row spread"><span>'+(s.draft?'AI 草稿，未启用':s.enabled?'参与自动匹配':'已停用')+'</span><span>'+esc(s.version)+'</span></span></button>').join('')+'</aside><form id="scene-form" class="stack" novalidate><div class="row spread wrap"><span class="pill '+(p.draft?'warn':'blue')+'">'+(p.draft?'检查草稿，再启用':'触发条件 + Prompt + 输出模板')+'</span><button class="link-btn" type="button" data-action="refine-scene" data-id="'+esc(p.id)+'">用 AI 起一份新草稿</button></div><div class="field"><label for="scene-name">场景名称</label><input class="input" id="scene-name" name="name" value="'+esc(v.name)+'" required maxlength="80" placeholder="例如 软件技术面试"></div><div class="field"><label for="scene-keywords">描述这个场景的关键词</label><input class="input" id="scene-keywords" name="keywords" value="'+esc(v.keywords)+'" maxlength="600"><span class="help">关键词用于表达意图，不是必须逐字命中的规则。匹配依据是录音的完整转写内容。</span></div><div class="field"><label for="scene-trigger">什么情况下使用</label><textarea class="input scene-description" id="scene-trigger" name="trigger" required>'+esc(v.trigger)+'</textarea></div><div class="field"><label for="scene-exclude">什么情况下不使用</label><textarea class="input scene-description" id="scene-exclude" name="exclude">'+esc(v.exclude)+'</textarea></div><details class="scene-advanced" '+(p.draft?'open':'')+'><summary>整理指令与输出模板 <span class="muted small">可检查、可修改</span></summary><div class="stack" style="padding-top:18px"><div class="field"><label for="scene-prompt">Prompt 整理指令</label><textarea class="input prompt-area" id="scene-prompt" name="text" required spellcheck="false">'+esc(v.text)+'</textarea></div><div class="field"><label for="scene-output">输出模板</label><textarea class="input scene-output" id="scene-output" name="output" required spellcheck="false">'+esc(v.output)+'</textarea><span class="help">当前预览 Markdown 的章节结构；正式版需要同时校验输出 Schema 与模板。</span></div></div></details><div class="row spread wrap"><span id="scene-dirty" class="small muted">'+(drafts[p.id]?'有未保存修改':p.draft?'AI 草稿尚未保存启用':'保存版本 '+p.version)+'</span><button class="link-btn" type="button" data-action="scene-preview">'+(ui.preview?'收起':'预览')+'输出结构</button></div>'+(ui.preview?'<section class="preview-pane"><h3>输出结构预览</h3><pre class="output-preview">'+esc(v.output)+'</pre><p class="small muted">预览不调用模型，不产生录音总结。</p></section>':'')+'<p class="field-error" id="scene-error" role="alert"></p><div class="form-actions"><div class="row wrap">'+(p.draft?'<button type="button" class="link-btn" data-action="discard-scene" data-id="'+esc(p.id)+'">放弃这份草稿</button>':'<button type="button" class="link-btn" data-action="toggle-scene" data-id="'+esc(p.id)+'">'+(p.enabled?'停用场景':'启用场景')+'</button>')+'<span class="small muted">新规则不追溯重写已有总结。</span></div><button class="btn primary" type="submit">'+(p.draft?'保存并启用':'保存新版本')+'</button></div></form></div>';
+ return `<div class="scene-split">
+ <aside class="scene-library" aria-label="整理场景列表">
+  <div class="scene-library-head"><h2>全部场景</h2><button class="scene-new" type="button" data-action="new-scene">${icon('plus')}新建</button></div>
+  <nav class="scene-index" aria-label="选择整理场景">${scenes.map(s=>`<button class="scene-list-row ${p.id===s.id?'active':''}" data-action="scene" data-id="${esc(s.id)}" ${p.id===s.id?'aria-current="true"':''}><strong>${esc(s.name||'未命名场景')}</strong><span class="scene-row-meta">${s.draft?'草稿，未启用':!s.enabled?'已停用':'v'+esc(s.version)}</span></button>`).join('')}</nav>
+ </aside>
+ <form id="scene-form" class="scene-editor" novalidate>
+  <header class="scene-editor-head"><h2>${esc(p.name||'新场景')}</h2><button class="scene-ai" type="button" data-action="refine-scene" data-id="${esc(p.id)}">${icon('rules')}AI 起草</button></header>
+  <div class="scene-fields">
+   <div class="field"><label for="scene-name">名称</label><input class="input" id="scene-name" name="name" value="${esc(v.name)}" required maxlength="80" placeholder="例如 软件技术面试"></div>
+   <div class="field"><label for="scene-keywords">关键词</label><input class="input" id="scene-keywords" name="keywords" value="${esc(v.keywords)}" maxlength="600"></div>
+   <div class="scene-condition-fields">
+    <div class="field"><label for="scene-trigger">适用场景</label><textarea class="input scene-description" id="scene-trigger" name="trigger" required>${esc(v.trigger)}</textarea></div>
+    <div class="field"><label for="scene-exclude">排除场景</label><textarea class="input scene-description" id="scene-exclude" name="exclude">${esc(v.exclude)}</textarea></div>
+   </div>
+   <div class="field"><label for="scene-prompt">Prompt</label><textarea class="input scene-prompt-flat" id="scene-prompt" name="text" required spellcheck="false">${esc(v.text)}</textarea></div>
+   <div class="field"><div class="row spread"><label for="scene-output">输出模板</label><button class="link-btn" type="button" data-action="scene-preview">预览</button></div><textarea class="input scene-output" id="scene-output" name="output" required spellcheck="false">${esc(v.output)}</textarea></div>
+  </div>
+  <footer class="scene-editor-footer">
+   <p class="field-error" id="scene-error" role="alert"></p>
+   <div class="scene-save-meta"><span id="scene-dirty" class="small muted">${drafts[p.id]?'有未保存修改':p.draft?'草稿，尚未启用':'v'+esc(p.version)}</span>${p.draft?`<button type="button" class="link-btn" data-action="discard-scene" data-id="${esc(p.id)}">放弃草稿</button>`:`<button type="button" class="link-btn" data-action="toggle-scene" data-id="${esc(p.id)}">${p.enabled?'停用':'启用'}</button>`}</div>
+   <button class="btn primary" type="submit">${p.draft?'保存并启用':'保存新版本'}</button>
+  </footer>
+ </form></div>`;
 }
+function previewScene(){const p=drafts[ui.scene]||scenes.find(s=>s.id===ui.scene);openDialog('输出模板预览','','<pre class="output-preview">'+esc(p.output)+'</pre>')}
+
 function newSceneDialog(brief=''){
  generationTicket++;generationBusy=false;
  openDialog('用几个关键词，教 AI 建一个场景','AI 会补全触发条件、排除条件、Prompt 和输出模板。','<div class="field"><label for="scene-brief">你想整理哪一类对话？</label><textarea class="input scene-brief" name="brief" id="scene-brief" maxlength="600" placeholder="例如：候选人、软件技术面试、系统设计、关键问答、准备建议" required>'+esc(brief)+'</textarea><span class="help">可以写行业、目标、对象和关注点，无需分别维护行业或模板。</span></div><div class="brief-examples"><button class="pill" type="button" data-action="brief-example" data-id="technical">技术面试，候选人视角</button><button class="pill" type="button" data-action="brief-example" data-id="delivery">快递取送，时间与待办</button></div><div class="notice">'+icon('rules')+'<div>正式版把关键词发送给所选模型生成草稿。这里使用预设示例，不联网；生成后仍可编辑，确认启用才参与匹配。</div></div><p id="generation-message" role="status" class="small muted"></p><p id="generation-error" class="field-error" role="alert"></p>','<button class="btn" type="button" data-action="close-dialog">取消</button><button class="btn" type="button" data-action="blank-scene">手动建立</button><button id="generate-scene" class="btn primary" type="submit">生成场景草稿</button>','scene-brief-form');
@@ -186,7 +243,7 @@ async function generateScene(form){
 function sceneSave(form){
  const p=scenes.find(s=>s.id===ui.scene),v=Object.fromEntries(new FormData(form)),error=document.getElementById('scene-error');
  const missing=[['name','场景名称'],['trigger','使用条件'],['text','整理指令'],['output','输出模板']].find(([key])=>!String(v[key]||'').trim());
- if(missing){error.textContent='请填写'+missing[1]+'。';if(['text','output'].includes(missing[0]))form.querySelector('.scene-advanced').open=true;form.elements[missing[0]].focus();return}
+ if(missing){error.textContent='请填写'+missing[1]+'。';form.elements[missing[0]].focus();return}
  if(scenes.some(s=>s.id!==p.id&&s.name===v.name.trim())){error.textContent='已有同名场景，请换一个名称。';return}
  const wasDraft=p.draft;Object.assign(p,Object.fromEntries(Object.entries(v).map(([key,value])=>[key,value.trim()])));
  if(!wasDraft){const v=p.version.split('.').map(Number);p.version=[v[0],v[1]+1,0].join('.');records.filter(r=>r.scene===p.id&&r.status==='ready').forEach(r=>r.dirty=true)}
@@ -289,7 +346,7 @@ document.addEventListener('click',e=>{
  case'speed':ui.speed=ui.speed===1?1.5:ui.speed===1.5?2:1;render(true);break;
  case'open-template':ui.scene=current().scene||scenes[0].id;switchView('rules');break;
  case'scene':ui.scene=id;render();break;
- case'scene-preview':ui.preview=!ui.preview;render(true);break;
+ case'scene-preview':previewScene();break;
  case'new-scene':newSceneDialog();break;
  case'new-scene-from-record':newSceneDialog('对话目标、参与者、需要保留的问答与后续安排');break;
  case'refine-scene':{const s=drafts[id]||scenes.find(s=>s.id===id);newSceneDialog(s.keywords||s.name);break}
