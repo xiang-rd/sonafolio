@@ -37,7 +37,10 @@ dialog:has(#import-form){max-width:560px}
 #import-form .dropzone .input{font-size:12px;max-width:315px}
 #import-form .dropzone .link-btn{font-size:11px}
 #import-form .import-options{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
-#import-form .import-options .input{font-size:12px;padding:9px 10px}
+#import-form .import-options .field{position:relative}
+#import-form .import-options select.input{appearance:none;-webkit-appearance:none;font-size:12px;padding:9px 36px 9px 10px;text-overflow:ellipsis}
+#import-form .import-options .field::after{content:"";position:absolute;right:14px;bottom:18px;width:6px;height:6px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(45deg);pointer-events:none}
+#import-form .import-options .field:has(select:disabled)::after{opacity:.5}
 #import-form .import-disclosure{display:flex;flex-direction:column;gap:5px}
 #import-form .import-disclosure .check{font-size:12px}
 #import-form .import-disclosure p{font-size:11px}
