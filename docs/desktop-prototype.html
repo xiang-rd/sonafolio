@@ -128,6 +128,12 @@ dialog:has(#import-form){max-width:560px}
 .filter-option[aria-selected=true]{background:var(--accent-soft);color:var(--accent)}
 .filter-check{display:flex;align-items:center;justify-content:center;width:15px;height:15px;flex:none}.filter-check svg{width:14px;height:14px}
 .filter-group-start{margin-top:5px;border-top:1px solid var(--line);border-top-left-radius:0;border-top-right-radius:0;padding-top:10px}
+
+/* Balance the sidebar identity and its primary action on one center line. */
+.sidebar>.brand{justify-content:center;padding:0;gap:10px}
+.sidebar>.import{width:calc(100% - 12px);align-self:center;justify-content:center;min-height:40px;padding:9px 12px;gap:8px}
+.sidebar>.import svg{width:16px;height:16px}
+@media(max-width:720px){.sidebar>.brand{justify-content:flex-start;gap:6px}.sidebar>.import{width:auto;min-height:33px;padding:7px;gap:0;align-self:auto}}
 </style>
 </head>
 <body>
