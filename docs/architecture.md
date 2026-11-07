@@ -1,83 +1,85 @@
-# 技术方案草案
+# 架构与模块边界
 
-## 建议架构
+本文维护设计、模块边界与跨模块契约；完成情况和任务分配只见 [status.md](status.md)。当前为 Python 核心库 + Typer CLI，入口直接调用函数，无需启动 HTTP 服务。
 
-Python 核心库 + Typer CLI；CLI 直接调用核心，无需先启动 HTTP 服务。任务量采用单进程顺序处理、SQLite 状态与阶段产物即可。后续 FastAPI 和界面复用同一核心。
+## 当前流程
 
 ```text
-输入 M4A（只读）
-  → 探测声道、采样率和时长
-  → 必要时解码为工作区内的派生音频
-  → ASR 时间戳转写 + 独立说话人分段
-  → 时间轴对齐、说话人归属、重叠与未知状态
-  → 配置类目中的主类目、子类目和标签
-  → Skill：LLM 根据各人内容推断角色并结构化提取
-  → 候选人视角总结（角色不确定时保留未知）
-  → JSON、Markdown、按类目归档和 SQLite 索引
+M4A → probe / record_input
+        ├─ transcribe → ASR transcript.json ─┐
+        └─ diarize → speakers.json ─────────┤
+                                           ↓
+                         annotate → 带说话人转写
+                                           ↓
+                         refine → 细化归属转写
+                                           ↓
+                analyze：分块分类 → 选择 Skill → 分块提取 → 全局合并
+                                           ↓
+                  summary.md / summary.json / sources.md + SQLite 索引
 ```
 
-若输入确实是按参与者分离的双声道，可利用声道信息；普通立体声不能直接当作两个人。保留原始声道，按各后端要求生成派生音频。
+ASR 与说话人区分的数据依赖独立，图中的分支不代表已实现自动并行调度。当前需要分别调用音频阶段并传递路径；`analyze_recording` 内部才有自动编排。`refine` 用于改善待确认归属，`analyze` 也接受已完成说话人合并的转写；保留不确定性，不强制把每句话归到某个人。
 
-## 模型路线
+## 模块与现有调用边界
 
-| 路线 | 组合 | 用途与限制 |
-| --- | --- | --- |
-| 本地基线，建议先验证 | whisper.cpp ASR + pyannote community-1 说话人区分 + 可配置 LLM | whisper.cpp 支持 Mac/Windows，Apple Silicon 可用 Metal。pyannote 独立提供说话人区间；两者须实现时间轴对齐，不能只按一句话最大重叠时间草率处理跨人发言。 |
-| 集成备选 | WhisperX + pyannote + 可配置 LLM | 可作为转写、对齐和说话人整合的参考路线；需验证中文对齐模型可用性、依赖和本机耗时，再决定是否整体引入。 |
-| 云端／混合 | 提供说话人时间戳的云端 ASR，或本地 ASR + 云端说话人服务；LLM 独立配置 | 接入前验证中文长音频、文件限制、异步任务、说话人数和时间戳字段；不可假设所有 ASR API 都支持说话人区分。 |
+以下路径相对于 `src/sonafolio/`；函数是当前实际接口，尚未抽象为统一后端协议。
 
-faster-whisper 可以作为额外 Python ASR 后端，支持 CPU/NVIDIA GPU 路线；不把它的 GPU 支持等同于 Apple Metal 支持。
+| 模块 | 文件与主要入口 | 输入 → 输出 | 主要验证 |
+| --- | --- | --- | --- |
+| 工作区与环境 | `paths.py`；根目录 `scripts/workspace.py`、`scripts/bootstrap.py` | 工作区 → 本地目录、受控子进程环境 | `test_workspace.py` |
+| 音频与 ASR | `audio.py:record_input/decode_audio`、`models.py`、`transcribe.py:transcribe_local`、`_whisper_worker.py` | 音频／模型 → 元信息、PCM、原始转写 | `test_audio.py` |
+| 说话人与对齐 | `diarization.py:diarize_local`、`annotation.py:annotate_recording`、`refinement.py:refine_recording`、`ctc.py` 及相应 worker | 音频／转写／声音区间 → 带归属和不确定性的转写 | `test_diarization.py`、`test_annotation.py`、`test_refinement.py` |
+| LLM 适配 | `llm.py:request_json/load_settings` | 指令／文本／Schema → 校验结果和调用元信息 | `test_llm.py` |
+| 场景 Skill | `skills.py:SkillRegistry/render_summary`、`builtin_skills/` | 清单／Prompt／Schema／模板 → 场景定义与 Markdown | `test_skills.py` |
+| 内容分析与输出 | `analysis.py:analyze_recording` | 带说话人转写 → 分类、提取、汇总、来源页、索引 | `test_skills.py` |
+| 用户入口 | `cli.py`、`__main__.py` | 参数 → 核心函数 → JSON 结果或错误退出 | CLI 帮助检查及相关模块测试 |
 
-pyannote community-1 初次下载需要用户接受 Hugging Face 上的访问条件并提供令牌。其模型采用 CC-BY-4.0，代码与模型许可证分别记录。模型下载完成后支持离线运行，运行时显式引用本地路径。禁用可选遥测。下载条件由用户处理，项目不代替用户接受。
+拆分 Agent 时可按表分工。`cli.py`、依赖与锁文件、公共契约文档属于共享修改点；由集成负责人合并，避免多个分支同时调整入口和协议。未来桌面模块尚无源码目录，不提前创建空目录。
 
-当前本地 ASR 适配器使用 pywhispercpp 绑定 whisper.cpp，已在 Apple Silicon 上加载公开的 large-v3-turbo Q5 模型并使用 Metal。加入显式下载的 Silero VAD 跳过非语音片段；下载记录模型仓库 revision 并校验 SHA-256。短样本已运行，仍有中文专有名词误识别，尚未评估人工准确率；Windows 和 macOS 分别验收。pyannote 的实际计算设备支持也单独验证，不沿用 ASR 的加速结论。
+## 阶段产物契约
 
-## 说话人与长录音
+核心函数大多返回含 `output_directory` 的摘要字典，详细数据写入文件。下一阶段读取对应文件，不把返回摘要当成完整转写。路径统一经过工作区校验，输入原始音频只读。
 
-- 保存全局说话人区间，ASR 分块必须恢复原始全局时间；说话人聚类保持整条录音的一致性。
-- 对齐优先使用细粒度时间戳，跨说话人边界的转写需要拆分或补充对齐；无法可靠拆分则标记归属待确认。
-- 保存原始重叠结果；供易读转写使用的单说话人视图不能覆盖重叠事实。
-- 不把第一个说话人、说话最多的人或最后回答问题的人固定当作候选人。
-- 角色映射独立存储并支持人工覆盖，不重新做 ASR 或聚类。
-- 不要求用户预先标注身份，也不预设只有两人；底层只输出稳定说话人 ID，业务角色由总结阶段的 LLM 根据内容推断。
-- 摘要按段提取证据再全局汇总；避免把完整长文本截断后交给模型。
-- 每一步独立记录状态、错误、输入指纹、后端及参数；重跑只使受影响的下游产物失效。
-
-## Skill 与 Prompt 接口
-
-Skill 是项目定义的声明式场景包，计划包含清单、场景说明、Prompt、JSON Schema、Markdown 模板和脱敏评估样例。第一版不需要运行任意第三方脚本。
-
-类目由清单中的稳定 ID、父类目、描述、适用条件、正反例定义。分类器只读启用类目的路由说明；选定后再加载完整 Skill。无法判断时进入待确认；LLM 自报置信度只作提示，不当作经过校准的概率。
-
-允许从命令行或配置直接指定 Prompt，使用默认的结果结构；完整 Skill 可覆盖输出结构与展示模板。子类目通过显式父引用扩展；元数据子级覆盖，字段按名称合并且冲突报错，Prompt 按父→子顺序显式组合；检测循环引用，并允许配置完全覆盖 Prompt。以上规则需在实现前固化到协议版本。
-
-| 类目 | 预期结果 |
+| 产物 | 当前关键字段与语义 |
 | --- | --- |
-| interview | 候选人问答复盘、表现证据、回答改进、知识缺口、岗位信息和后续行动 |
-| interview.technical | 继承面试字段，扩展技术知识点、题目与解答、项目追问和练习计划 |
-| consultation | 对话中的症状、时间线、既往情况、检查／用药／医嘱、说话来源和待确认项 |
-| delivery | 录音中的快递信息、取送时间地点、异常和待办 |
+| `data/runs/<录音与指纹>/input.json` | 原始音频绝对路径 `source`、`sha256`、时长和媒体信息 |
+| `asr/<范围与设置>/transcript.json` | `schema_version=1`、`source_sha256`、`range`、`segments`；片段含 `id/start/end/text/speaker_id/role`，ASR 阶段说话人为空 |
+| `diarization/<范围与设置>/speakers.json` | 同一音频指纹与范围、`speaker_ids`、允许重叠的 `turns`、单说话人视图 `exclusive_turns`；区间含 `start/end/speaker_id` |
+| `annotated/<指纹>/transcript.json` | 保留原文和片段 ID，增加候选声音、覆盖量与归属状态；不清楚时 `speaker_id=null` |
+| `refined/<指纹>/transcript.json` | 保留原文，拆分片段通过 `source_segment_id` 关联原始片段；混合精度，字符时间为模型估计 |
+| `analysis/<设置指纹>/` | `route-*.json`、`notes-*.json`、带预算和版本的合并结果、状态、预览或失败诊断 |
+| `data/output/<类目层级>/<运行标识>/` | `summary.json` 含 `metadata/classification/result`；`summary.md` 的引用指向 `sources.md` 的片段锚点 |
+| `data/index.sqlite` | 目前只有 `analyses` 结果索引；不是完整任务队列或统一 Pipeline 状态库 |
 
-后端结构化输出通过 Schema 校验；失败有限重试，仍失败则保留原始返回并报错。总结中的事实关联 segment ID；分析、建议、缺失信息分别标记。
+时间使用相对于原始录音的秒数，禁止按分块重新归零。声音 ID 仅在同一次录音处理范围内稳定，不表示跨录音身份；业务角色在 LLM 阶段推断。合并前验证来源指纹和范围；声音聚类不能按 LLM 分块重新执行。
 
-## 工作区与开源实施顺序
+转写可为 `completed_with_unresolved_segments`，表示计算完成但仍有归属不确定性。`status.json` 的 `completed` 仅表示阶段执行成功，不证明识别准确。现有产物有基础版本字段，但并非所有字段都有独立 Schema；变更字段、目录层级或状态语义时，要同步所有生产者、消费者、缓存版本及兼容策略。
 
-1. 已完成：建立需求、方案、目录约定与环境启动器。
-2. 已完成（当前开发机）：复制用户提供的 uv，在工作区安装受管 Python、`.venv`、依赖并写入锁文件；通过 PyAV 解码，无需安装系统 ffmpeg；未向系统 Python 安装包或修改 Shell 配置。
-3. 本地 ASR/VAD、整段说话人聚类和保守归属均已完成真实录音运行；已增加中文 CTC 字符对齐估计，对低分、未支持字符与重叠语音保留不确定性，不宣称人工标注精度。
-4. DeepSeek 已完成获用户明确授权的完整面试转写处理：11 个分块全部分类为技术面试，再逐块提取并合并。增加具体字段错误反馈、独立的最终输出预算、跨块角色上下文，以及禁止把 ASR 误识当作面试表现缺陷的合并规则。
-5. 声明式 Skill v1、继承、Prompt 覆盖、Markdown/JSON、分类目录、SQLite 索引和分块检查点均已实现，44 项测试通过。完成一条真实面试的结构和来源编号检查；人工准确率及其他场景效果评估仍待进行。
-6. 扩展与发布：补其他云端后端、跨平台 CI、英文说明、示例及许可证；再实现 API/界面。
+## 缓存与恢复边界
 
-## 官方资料
+- ASR、说话人、合并与对齐目录根据输入或参数区分版本，但当前调用这些阶段不会自动跳过已有计算。
+- LLM 分类、提取和合并已有文件检查点，重跑会校验并复用；`--force` 重新调用模型。
+- 当前分析指纹包含整个转写、全部 Skill 定义及 LLM 设置；只改模板也可能使分析检查点失效。尚未实现独立的“仅重渲染”命令。
+- 最终合并预算和 `MERGE_VERSION` 单独区分结果，调整它们可以复用分类和提取检查点。详见 [Skill 协议](skills.md)。
+- 统一恢复、任务取消、并发控制和全链路状态机尚未实现，属于下一阶段工作。
 
-- [whisper.cpp 平台与硬件支持](https://github.com/ggml-org/whisper.cpp)
-- [faster-whisper 安装与 GPU 要求](https://github.com/SYSTRAN/faster-whisper)
-- [pyannote community-1 模型、访问条件、离线运行与说话人输出](https://huggingface.co/pyannote/speaker-diarization-community-1)
-- [pyannote.audio 与遥测开关](https://github.com/pyannote/pyannote-audio)
-- [WhisperX](https://github.com/m-bain/whisperX)
-- [uv 存储目录](https://docs.astral.sh/uv/reference/storage/)
-- [uv 环境变量](https://docs.astral.sh/uv/reference/environment/)
-- [Hugging Face 缓存与令牌位置](https://huggingface.co/docs/huggingface_hub/package_reference/environment_variables)
+## 已采纳的技术方向
 
-资料核查日期：2026-11-07；版本和兼容性需在实际安装时固定并验证。
+当前模型组合为 whisper.cpp / pywhispercpp + Silero VAD、pyannote community-1、中文 Wav2Vec2 CTC，以及 DeepSeek JSON 输出。模型来源和 revision 记录在工作区 `.models/` 的清单内；模型下载与推理显式分离。其他供应商、本地 LLM 和云端 ASR 仍待接入。
+
+后续保留 Python 处理核心，桌面方向采用 **Tauri 2 + TypeScript / React + Python 独立处理进程**。Rust 负责桌面生命周期和系统集成，不重写现有模型管线。CLI 与桌面复用同一核心；暂不为桌面强制引入 HTTP 服务。
+
+以下均为计划，不能当作已存在接口：
+
+1. 新增 `sonafolio run <audio>`，管理阶段依赖、进度、取消、复用与失败恢复；仍保留单阶段命令。
+2. 为桌面定义带协议版本、任务 ID 的请求和事件。优先验证通过标准输入／输出传递 JSON Lines，日志与协议分流；具体字段在实现时确定。
+3. 桌面通过 sidecar 启动受控 Python 处理进程；分别制作 macOS Apple Silicon / Windows x64 运行包，再评估其他架构。
+4. 桌面用户选择可写工作区，环境、模型、推理缓存和结果放入该目录；安装目录与数据目录分离，不向应用包内部写数据。
+
+新编排模块需调用现有核心，不在 CLI、Rust 或前端复制业务规则。正式打包必须验证 Python/native 依赖、GPU 与 CPU 路径、路径迁移、签名和安装体验；Tauri 的平台支持不代表模型依赖已在对应平台验收。
+
+## 设计约束与资料
+
+原始声音区间、转写和来源引用均保留；不可靠归属不强行指派；不将 ASR 误识当作候选人能力缺陷；Schema 与编号合法不等于事实准确。工作区边界见 [workspace.md](workspace.md)，产品验收见 [requirements.md](requirements.md)。
+
+官方参考：[whisper.cpp](https://github.com/ggml-org/whisper.cpp)、[pyannote community-1](https://huggingface.co/pyannote/speaker-diarization-community-1)、[中文对齐模型](https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn)、[DeepSeek](https://api-docs.deepseek.com/)、[Tauri sidecar](https://v2.tauri.app/develop/sidecar/)。实际依赖版本以 `uv.lock` 为准，外部兼容性以目标平台实测为准。

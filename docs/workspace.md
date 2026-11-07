@@ -1,42 +1,98 @@
-# 工作区环境约定
+# 开发与运行
 
-## 边界
+本文是安装、命令、密钥和环境边界的运行手册。当前完成情况见 [status.md](status.md)，阶段产物结构见 [architecture.md](architecture.md)。
 
-应用依赖只安装到 `.venv`；Python、uv 与本地工具放 `.runtime`；模型及缓存放 `.models` 与 `.cache`；音频临时文件放 `.tmp`；业务数据放 `data`。源码外不写入项目管理的环境与数据。
+## 环境边界
 
-不使用 `sudo`、全局 pip、`pip --user`、Homebrew 安装或全局模型服务安装，不修改 Shell profile、系统 PATH、注册表、现有 Python 环境及全局登录令牌。后续本地 LLM 若采用 Ollama 等服务，要明确启动专属进程并指定工作区模型目录，不能直接复用它的默认全局目录。
+应用依赖只安装到 `.venv`；Python、uv 与本地工具放 `.runtime`；模型和缓存放 `.models`、`.cache`；临时音频放 `.tmp`；业务数据放 `data`。不使用 sudo、全局 pip、pip --user 或全局模型安装，不修改 Shell profile、系统 PATH、注册表或现有 Python 环境。
 
-`scripts/workspace.py` 复制当前进程环境，再对子进程覆盖相关目录变量；不改父进程环境，不重设 HOME、USERPROFILE 或 CODEX_HOME。以脚本位置定位工作区，不依赖调用者当前目录。发现运行目录经符号链接逃逸工作区时拒绝执行。
+`scripts/workspace.py` 以脚本位置定位工作区，为子进程配置目录，不改变父进程环境，不重设 HOME、USERPROFILE 或 CODEX_HOME。目录经符号链接逃逸工作区时拒绝执行。uv、Python、pip 与 Sonafolio 的标准启动入口只使用工作区工具，不回退到全局安装。
 
-覆盖目录包括 uv 的依赖缓存、受管 Python、Python 下载缓存、工具目录和工具入口，pip 缓存与配置，Hugging Face 的模型／Xet／assets 缓存与令牌路径，Torch、Numba、Matplotlib 缓存，XDG 路径及临时目录。禁用 Python 用户 site、隐式 Hugging Face 令牌和相关可选遥测。新适配器必须在导入模型库之前设置自身的显式下载路径，并补做写入位置检查。
+启动器覆盖 uv / pip / Hugging Face / Torch / Numba / Matplotlib / XDG / 临时目录等配置，禁用用户 site、外部 PYTHONPATH、隐式 Hugging Face 令牌和相关可选遥测；uv 忽略外部配置。新后端须在导入模型库前设置下载和缓存路径，并验证实际写入位置。后续本地 LLM 服务也应使用专属进程和工作区模型目录。
 
-环境变量属于应用级目录配置，**不是操作系统级文件访问限制**；不能阻止任意第三方程序自行写入其他路径。因此每个真实模型适配器还须实测其下载、加载与运行的写入位置。当前已验证启动器、解码和文件输出边界，ASR/VAD 使用显式本地模型路径，并将推理日志和临时采样写入工作区；这不等同于对所有第三方后端做了操作系统级写入审计。操作系统自身的日志、交换文件等不属于应用可控制的目录。
+这是应用级目录约定，**不是操作系统文件沙箱**。第三方程序、OS 日志和交换文件不能仅靠环境变量约束；现有验证不等于对所有第三方依赖完成系统级写入审计。启动器允许运行其他显式命令，不自动保证任意程序遵守这些边界。
 
-## 使用
+## 初始化与诊断
 
-macOS 使用 `python3`，Windows 可使用 `py -3` 调用本启动器。需要 Python 3.10 或以上；此时只读现有解释器，不安装包。
-
-```sh
-python3 scripts/workspace.py doctor
-python3 scripts/workspace.py run -- uv --version
-```
-
-第二条只会查找 `.runtime/bin/uv`（Windows 为 `uv.exe`），未安装时明确报错，不回退到全局 uv。`run -- python ...`、`python3` 和 `pip` 同理仅使用 `.venv` 中的 Python，其中 `pip` 展开为 `python -m pip`；`run -- sonafolio` 通过虚拟环境 Python 启动应用。
-
-实际安装入口为 `python3 -B scripts/bootstrap.py --asr`（Windows 使用 `py -3`）。它只读用户已有 uv 并复制到 `.runtime/bin`，随后将项目 Python、依赖与缓存安装在工作区。现有锁文件通过 `uv sync --locked` 验证。ASR 仅安装预编译 wheel，不隐式进行 native 源码编译；没有匹配 wheel 时明确失败。当前开发机已完成此安装并下载公开 ASR/VAD 模型。
-
-启动器也允许运行显式给定的其他命令，为它们提供相同子进程环境；这不是安全沙箱，直接执行任意命令并不自动保证其写入行为符合约定。项目正式入口和安装流程后续必须使用本地 Python／工具的显式路径。
-
-uv 设为忽略外部配置，Python 设为不读取用户 site 和外部 PYTHONPATH；包索引和镜像后续通过项目显式配置传入。脚本不会打印完整环境、API key 或 Hugging Face token。`.env` 暂不自动加载；Hugging Face 令牌使用 `sonafolio configure-hf` 交互保存到工作区，不调用全局 `hf auth login`。
-
-验证启动器：
+下列命令在项目根目录执行。macOS 用 `python3`，Windows 用 `py -3` 替换命令开头；启动脚本要求现有 Python 3.10+，应用使用 `.python-version` 指定的专用 Python 3.12。不会向启动脚本所用的现有 Python 安装包。
 
 ```sh
-python3 scripts/workspace.py run -- /absolute/path/to/python3 -B -m unittest discover -s tests -v
+# 仅创建和检查目录，不下载
+python3 -B scripts/workspace.py doctor
+
+# 读取已有 uv，复制进工作区；可加 --uv 指定已有可执行文件
+python3 -B scripts/bootstrap.py --asr --diarization --alignment
+
+python3 -B scripts/workspace.py run -- uv --version
+python3 -B scripts/workspace.py run -- sonafolio --help
 ```
 
-Windows 将解释器替换为可读取的实际绝对路径；正式环境建立后使用 `run -- python -B -m unittest discover -s tests -v`。测试只使用标准库，不访问网络或模型。该验证不等同于 Windows 实机通过。
+bootstrap 下载受管 Python，创建虚拟环境，按 `uv.lock` 安装依赖。pywhispercpp 仅使用预编译 wheel，没有匹配 wheel 时失败，不隐式进行源码编译。安装依赖不等于下载模型，也不会自动发送录音。
+
+## 密钥与模型准备
+
+```sh
+# 交互输入不回显；仅保存，不请求模型
+python3 -B scripts/workspace.py run -- sonafolio configure-hf
+python3 -B scripts/workspace.py run -- sonafolio configure-deepseek
+
+# 以下命令会联网下载到工作区
+python3 -B scripts/workspace.py run -- sonafolio download-asr
+python3 -B scripts/workspace.py run -- sonafolio download-diarization
+python3 -B scripts/workspace.py run -- sonafolio download-alignment
+```
+
+说话人模型下载前，用户需用创建令牌的账号在 [community-1 模型页](https://huggingface.co/pyannote/speaker-diarization-community-1)接受访问条件，并配置有权读取该模型的令牌。项目不代替用户同意条件；模型准备好后，ASR、说话人区分和对齐使用本地权重。下载清单记录来源和版本／校验信息。
+
+凭据保存在被 Git 忽略的本地明文文件：
+
+| 文件 | 用途 |
+| --- | --- |
+| `.runtime/secrets/huggingface-token` | 下载受限 Hugging Face 模型 |
+| `.runtime/secrets/deepseek-api-key` | DeepSeek 请求 |
+
+POSIX 系统保存时设置 `0600` 权限；Windows 凭据访问控制尚需单独验收。DeepSeek 也支持当前进程的 `DEEPSEEK_API_KEY`，其优先于文件；无需写入全局环境变量。`.env` 暂不自动加载。不要使用全局 `hf auth login`，不要在聊天、命令行参数或日志中粘贴密钥。
+
+复制 `sonafolio.example.toml` 为被忽略的 `sonafolio.toml` 可配置 LLM 模型、输出预算、超时和 thinking。当前只实现 DeepSeek，默认 `deepseek-flash`，分块输出 8192、最终合并 16384；后者用 `--merge-max-tokens` 调整。模型可用性以配置服务实际返回为准。
+
+## 当前分阶段运行
+
+输入放 `data/input/`，原始音频只读。以下 `<录音>`、`<范围和设置>`、`<指纹>` 是占位符，按每条命令返回的 `output_directory` 填入下一阶段路径。当前没有统一的 `sonafolio run` 命令。
+
+```sh
+python3 -B scripts/workspace.py run -- sonafolio probe "data/input/recording.m4a"
+python3 -B scripts/workspace.py run -- sonafolio transcribe "data/input/recording.m4a" --model .models/whisper.cpp/ggml-large-v3-turbo-q5_0.bin
+python3 -B scripts/workspace.py run -- sonafolio diarize "data/input/recording.m4a"
+python3 -B scripts/workspace.py run -- sonafolio annotate "data/runs/<录音>/asr/<范围和设置>/transcript.json" "data/runs/<录音>/diarization/<范围和设置>/speakers.json"
+python3 -B scripts/workspace.py run -- sonafolio refine "data/runs/<录音>/annotated/<指纹>/transcript.json" "data/runs/<录音>/diarization/<范围和设置>/speakers.json"
+python3 -B scripts/workspace.py run -- sonafolio list-skills
+
+# 仅生成发送计划和完整文本预览，不调用 API
+python3 -B scripts/workspace.py run -- sonafolio analyze "data/runs/<录音>/refined/<指纹>/transcript.json" --dry-run
+
+# 这条会向 DeepSeek 发送转写文本、时间戳、说话人和来源 ID、场景指令
+python3 -B scripts/workspace.py run -- sonafolio analyze "data/runs/<录音>/refined/<指纹>/transcript.json"
+```
+
+ASR 和 diarize 可用 `--start`、`--duration` 做同一范围的短样本；仅一端截短会导致后续范围不匹配。ASR 的 `--device cpu` 关闭 GPU，默认 `auto`。diarize / refine 默认 CPU；Mac MPS 需显式 `--device mps`，CUDA 等设备须在目标环境另行验证。说话人数默认自动估计，不要求提前标注候选人。
+
+`sonafolio check-llm` 会发送一个不含录音的微型真实请求，用于验证连接；常规离线检查无需执行。真实 analyze 不上传原始 M4A 或 HF 令牌，不自动切换供应商。Prompt、强制类目、缓存和输出说明见 [skills.md](skills.md)。
+
+## 验证与构建
+
+```sh
+python3 -B scripts/workspace.py run -- python -m unittest discover -s tests -v
+python3 -B scripts/workspace.py run -- uv lock --check --offline
+python3 -B scripts/workspace.py run -- uv build --offline
+git diff --check
+```
+
+自动化测试使用项目依赖、合成音频和模拟模型／网络，不需要真实模型和密钥；环境启动器的测试只使用标准库。离线锁文件与构建检查要求所需依赖已缓存，首次准备环境仍可能需要网络。测试通过不等于真实模型效果或 Windows 实机通过。
+
+构建产物在 `dist/`，发布前检查 wheel / sdist 包含内置 Skill、源码包包含交接文档，且未包含 `data`、模型、环境和密钥。代码许可证尚待选择，当前构建成功不代表具备正式发布条件。
 
 ## 清理与迁移
 
-`.runtime`、`.venv`、`.cache`、`.models`、`.tmp` 与 `data` 均忽略版本管理；不要把真实输入音频或令牌提交到 Git。清理环境时先备份 `data` 和本地密钥，再按需删除生成目录。迁移机器时重建 Python／虚拟环境，不能直接搬运 `.venv`；模型可以单独迁移并校验版本。
+`.runtime`、`.venv`、`.cache`、`.models`、`.tmp`、`data` 和 `dist` 均忽略版本管理。清理前备份输入、结果和本地密钥，只删除明确可重建的目录；不要整目录清空用户数据。
+
+迁移机器或更换项目路径后重建 Python／虚拟环境，不直接搬运 `.venv`。模型可单独迁移并校验版本；现有音频元信息和 SQLite 结果可能含绝对路径，还需迁移或重新建立索引。目前尚无通用的一键迁移命令。

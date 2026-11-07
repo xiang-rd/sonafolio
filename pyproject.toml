@@ -34,4 +34,4 @@ packages = ["src/sonafolio"]
 exclude = ["/.venv/**", "/.runtime/**", "/.cache/**", "/.models/**", "/.tmp/**", "/data/**", "/.env*", "/sonafolio.toml", "/dist/**", "/build/**"]
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/scripts", "/tests", "/docs", "/README.md", "/pyproject.toml", "/uv.lock", "/.python-version", "/sonafolio.example.toml", "/.gitignore"]
+include = ["/src", "/scripts", "/tests", "/docs", "/README.md", "/AGENTS.md", "/pyproject.toml", "/uv.lock", "/.python-version", "/sonafolio.example.toml", "/.gitignore"]
