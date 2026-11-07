@@ -68,3 +68,9 @@ python3 -B scripts/workspace.py run -- sonafolio analyze path/to/transcript.json
 `--dry-run` 仅写入本地发送计划和完整文本预览，不调用 API。真实 `analyze` 会把转写文本、片段编号、时间戳、声音编号和场景指令发送给配置的 DeepSeek 服务。当前不会向 DeepSeek 上传原始音频，也不会向其发送 Hugging Face 令牌。
 
 结果按类目写入 `data/output/<主类目>/<子类目>/<运行标识>/`，包含 `summary.md`、`summary.json` 和带来源锚点的 `sources.md`。SQLite 索引位于 `data/index.sqlite`。模型推断结果仍需回听复核，Schema 与来源编号校验不等于事实准确率验证。
+
+## 下一阶段：统一整理场景与 AI 起草（尚未实现）
+
+产品界面将行业语境、场景分类、Prompt 与输出模板统一为一个“整理场景”，底层继续映射到声明式 Skill。人工输入关键词，由 LLM 起草名称、触发条件、排除条件、Prompt 和输出模板；生成资源经过结构、继承及渲染校验，先保存为不参与路由的草稿，编辑确认后启用。
+
+关键词是意图描述，不是硬匹配规则。批量导入后，每条录音根据完整转写分块和已启用场景说明进行 LLM 匹配；匹配依据需关联来源。歧义或无匹配进入待确认，不静默选择任意模板。已有单录音分类、提取与合并继续复用；新的条件字段、草稿状态和版本快照须先明确兼容策略，现有 v1 解析器不会自动消费这些新能力。任务边界和进度见 [status.md](status.md)，设计契约见 [architecture.md](architecture.md)。
