@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "delivery_items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    }
+  },
+  "required": [
+    "delivery_items"
+  ]
+}

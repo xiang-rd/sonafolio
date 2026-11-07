@@ -1,0 +1,6 @@
+protocol_version = 1
+id = "interview.hr"
+version = "1.0.0"
+description = "HR 或行为面试，重点是求职动机、职业选择、协作经历、薪酬和入职安排。"
+enabled = true
+parent = "interview"

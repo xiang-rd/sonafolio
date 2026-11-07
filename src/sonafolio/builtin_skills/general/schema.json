@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "segment_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "maxItems": 12
+        }
+      },
+      "required": [
+        "text",
+        "segment_ids"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "overview": {
+      "type": "string"
+    },
+    "participants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "speaker_id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "candidate",
+              "interviewer",
+              "doctor",
+              "patient",
+              "courier",
+              "recipient",
+              "other",
+              "unknown"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "segment_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12
+          }
+        },
+        "required": [
+          "speaker_id",
+          "role",
+          "reason",
+          "segment_ids"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    },
+    "analysis": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    },
+    "uncertainties": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "title",
+    "overview",
+    "participants",
+    "facts",
+    "analysis",
+    "actions",
+    "uncertainties"
+  ]
+}

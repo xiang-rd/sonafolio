@@ -1,0 +1,6 @@
+protocol_version = 1
+id = "delivery"
+version = "1.0.0"
+description = "快递或物流沟通，讨论取送件、地址、单号、时间安排和异常处理。"
+enabled = true
+parent = "general"

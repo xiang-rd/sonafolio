@@ -1,0 +1,6 @@
+protocol_version = 1
+id = "unknown"
+version = "1.0.0"
+description = "无法从现有类目确定场景，或多种场景混合且无明确主类目。"
+enabled = true
+parent = "general"

@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "technical_topics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    }
+  },
+  "required": [
+    "technical_topics"
+  ]
+}

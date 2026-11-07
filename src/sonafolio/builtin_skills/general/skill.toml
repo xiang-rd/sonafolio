@@ -1,0 +1,5 @@
+protocol_version = 1
+id = "general"
+version = "1.0.0"
+description = "基础提取规则与通用展示，仅用于继承。"
+enabled = false

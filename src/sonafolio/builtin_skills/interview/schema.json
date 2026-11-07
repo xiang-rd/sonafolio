@@ -1,0 +1,35 @@
+{
+  "properties": {
+    "qa": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          },
+          "segment_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 12
+          }
+        },
+        "required": [
+          "question",
+          "answer",
+          "segment_ids"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "qa"
+  ]
+}

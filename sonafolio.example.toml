@@ -1,0 +1,9 @@
+[llm]
+provider = "deepseek"
+model = "deepseek-flash"
+max_tokens = 8192
+timeout_seconds = 120
+thinking = false
+
+# Copy to sonafolio.toml to override defaults.
+# Store API keys through configure-deepseek, never in this file.

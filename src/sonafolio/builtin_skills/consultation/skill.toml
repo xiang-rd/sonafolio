@@ -1,0 +1,6 @@
+protocol_version = 1
+id = "consultation"
+version = "1.0.0"
+description = "医患问诊，讨论症状、病史、检查、用药、医嘱和复诊安排。"
+enabled = true
+parent = "general"

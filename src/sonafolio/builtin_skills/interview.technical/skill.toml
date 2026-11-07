@@ -1,0 +1,6 @@
+protocol_version = 1
+id = "interview.technical"
+version = "1.0.0"
+description = "技术面试，重点是项目技术细节、算法、系统设计、工程方案或技术追问。"
+enabled = true
+parent = "interview"

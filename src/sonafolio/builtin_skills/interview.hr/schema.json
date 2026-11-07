@@ -1,0 +1,13 @@
+{
+  "properties": {
+    "career_topics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    }
+  },
+  "required": [
+    "career_topics"
+  ]
+}

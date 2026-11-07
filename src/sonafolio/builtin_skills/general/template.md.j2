@@ -1,0 +1,37 @@
+# {{ result.title }}
+
+> AI 生成的整理草稿；ASR、声音聚类和字符对齐含误差。角色来自内容推断，需核对关键事实。
+
+类目：{{ metadata.skill_id }} · 模板版本：{{ metadata.skill_version }}
+
+{{ result.overview }}
+
+## 参与者与角色依据
+{% for person in result.participants %}
+- **{{ person.speaker_id }} / {{ role_name(person.role) }}**：{{ person.reason }} {{ refs(person.segment_ids) }}
+{% endfor %}
+{% if result.qa is defined %}
+## 问题与实际回答
+{% for item in result.qa %}
+**问题：** {{ item.question }}
+
+**实际回答：** {{ item.answer }}
+
+依据：{{ refs(item.segment_ids) }}
+
+{% endfor %}
+{% endif %}
+{% for field,heading in [('technical_topics','技术知识点与追问'),('career_topics','职业与协作话题'),('clinical_items','问诊记录'),('delivery_items','快递事项'),('facts','沟通事实'),('analysis','复盘与改进建议'),('actions','后续行动')] %}
+{% if result[field] is defined %}
+## {{ heading }}
+{% for item in result[field] %}
+- {{ item.text }} {{ refs(item.segment_ids) }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+## 待确认事项
+{% for item in result.uncertainties %}
+- {{ item }}
+{% endfor %}
+
+完整依据见 [转写与说话人来源](sources.md)。

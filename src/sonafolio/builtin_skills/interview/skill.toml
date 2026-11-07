@@ -1,0 +1,6 @@
+protocol_version = 1
+id = "interview"
+version = "1.0.0"
+description = "招聘面试，包含候选人经历介绍、能力提问、岗位与团队沟通。"
+enabled = true
+parent = "general"
