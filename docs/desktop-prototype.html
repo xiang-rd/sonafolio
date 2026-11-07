@@ -25,6 +25,26 @@
 
 #scene-form>.form-actions{position:sticky;bottom:0;z-index:2;background:var(--paper);padding-top:16px;padding-bottom:18px}
 @media(max-width:720px){#scene-form>.form-actions{bottom:0;gap:9px}#scene-form>.form-actions>.row>.small{display:none}}
+
+/* Compact import: keep the two decisions visible without an advanced section. */
+dialog:has(#import-form){max-width:560px}
+#import-form .dialog-head{padding:18px 22px 14px}
+#import-form .dialog-head h2{font-size:18px}
+#import-form .dialog-body{padding:18px 22px;gap:16px}
+#import-form .dropzone{padding:17px 14px;gap:9px}
+#import-form .dropzone>svg{width:25px;height:25px}
+#import-form .dropzone h3{font-size:14px}
+#import-form .dropzone .input{font-size:12px;max-width:315px}
+#import-form .dropzone .link-btn{font-size:11px}
+#import-form .import-options{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+#import-form .import-options .input{font-size:12px;padding:9px 10px}
+#import-form .import-disclosure{display:flex;flex-direction:column;gap:5px}
+#import-form .import-disclosure .check{font-size:12px}
+#import-form .import-disclosure p{font-size:11px}
+#import-form #import-file-list{max-height:112px;overflow-y:auto;font-size:11px;gap:7px}
+#import-form #import-error:empty{display:none}
+#import-form .dialog-foot{padding:14px 22px}
+@media(max-width:460px){#import-form .import-options{grid-template-columns:minmax(0,1fr)}#import-form .dialog-body{padding:16px 18px;gap:14px}#import-form .dialog-head,#import-form .dialog-foot{padding-left:18px;padding-right:18px}}
 </style>
 </head>
 <body>
@@ -206,9 +226,10 @@ function confirmScene(r,id){
 function classifyDialog(){const r=current();openDialog('选择整理场景','一个场景已经包含业务背景、触发条件、Prompt 和输出模板。','<div class="field"><label for="record-scene">整理场景</label><select class="input" name="scene" id="record-scene">'+sceneOptions(r.scene)+'</select></div><div class="notice">'+icon('rules')+'<div>'+esc(r.routing?.reason||'可更正 AI 的匹配结果。')+'<br>已有总结保留；切换场景后重新整理生成新版本。</div></div>','<button class="btn" type="button" data-action="close-dialog">取消</button><button class="btn primary" type="submit">'+(r.status==='needs_review'?'确认并继续':'保存场景')+'</button>','classify-form')}
 function importDialog(){
  importFiles=[];const cloud=config.provider!=='local';
- openDialog('一批录音，各自整理','无需逐条选分类，转写后由 AI 匹配已启用的整理场景。','<div class="dropzone" id="dropzone">'+icon('upload')+'<h3>拖入多个 M4A 文件</h3><p>原型只读取文件名，不读取音频内容。</p><label class="sr-only" for="import-file">选择多个 M4A 文件</label><input class="input" type="file" multiple accept=".m4a,audio/mp4" id="import-file"><button class="link-btn" type="button" data-action="use-demo">体验 3 条示例批次</button></div><div id="import-file-list" class="import-file-list" aria-live="polite"></div><div class="notice">'+icon('rules')+'<div><strong>默认：AI 逐条匹配场景</strong><br>根据转写内容判断，关键词作为场景说明，不按文件名或关键词命中强行分类。</div></div><details class="scene-advanced"><summary>高级选项：指定全批次场景</summary><div class="field" style="padding-top:12px"><label for="import-scene">场景匹配方式</label><select class="input" name="scene" id="import-scene">'+option('auto','AI 自动匹配，每条独立判断','auto')+sceneOptions('auto')+'</select></div></details><div class="field"><label for="import-mode">处理方式</label><select class="input" id="import-mode" name="mode">'+option('mixed','本地识别 + AI 匹配与内容整理','mixed')+option('local','仅本地转写与说话人区分','mixed')+'</select></div><div id="cloud-disclosure" class="notice">'+icon('shield')+'<div>'+(cloud?'正式版将转写文字发送到所选云端模型，用于匹配与总结；原始音频保留本地。':'当前选择本地 AI 服务，正式版将转写发送到配置的本地地址。')+' 此原型不联网。</div></div><label id="cloud-consent-label" class="check" '+(!cloud?'hidden':'')+'><input type="checkbox" name="consent" id="cloud-consent"><span>允许本批录音使用所选云端模型匹配与整理</span></label><p id="import-error" class="field-error" role="alert"></p>','<button class="btn" type="button" data-action="close-dialog">取消</button><button class="btn primary" type="submit">开始批量演示</button>','import-form');
+ openDialog('导入录音','','<div class="dropzone" id="dropzone">'+icon('upload')+'<h3>拖入 M4A，或选择文件</h3><label class="sr-only" for="import-file">选择多个 M4A 文件</label><input class="input" type="file" multiple accept=".m4a,audio/mp4" id="import-file"><button class="link-btn" type="button" data-action="use-demo">使用示例录音</button></div><div id="import-file-list" class="import-file-list" aria-live="polite"></div><div class="field-grid import-options"><div class="field"><label for="import-scene">场景匹配</label><select class="input" name="scene" id="import-scene">'+option('auto','AI 自动匹配','auto')+sceneOptions('auto')+'</select></div><div class="field"><label for="import-mode">处理方式</label><select class="input" id="import-mode" name="mode">'+option('mixed','本地转写 + AI 整理','mixed')+option('local','仅本地转写','mixed')+'</select></div></div><div id="cloud-disclosure" class="import-disclosure"><label id="cloud-consent-label" class="check" '+(!cloud?'hidden':'')+'><input type="checkbox" name="consent" id="cloud-consent"><span>允许将本批转写发送至云端模型</span></label><p class="small muted">'+(cloud?'音频保留本地；原型不联网。':'使用本地 AI 服务；原型不联网。')+'</p></div><p id="import-error" class="field-error" role="alert"></p>','<button class="btn" type="button" data-action="close-dialog">取消</button><button class="btn primary" type="submit">开始整理</button>','import-form');
  const zone=document.getElementById('dropzone');zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('dragover')});zone.addEventListener('dragleave',()=>zone.classList.remove('dragover'));zone.addEventListener('drop',e=>{e.preventDefault();zone.classList.remove('dragover');selectImportFiles(Array.from(e.dataTransfer.files).map(f=>({name:f.name})))})
 }
+
 function selectImportFiles(files){
  const bad=files.filter(f=>!/\.m4a$/i.test(f.name));if(bad.length){document.getElementById('import-error').textContent='以下文件不是 M4A：'+bad.map(f=>f.name).join('、')+'。请重新选择，本次没有替换已有选择。';return}
  importFiles=files.map(f=>({...f}));document.getElementById('import-error').textContent='';
