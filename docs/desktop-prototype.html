@@ -118,6 +118,16 @@ dialog:has(#import-form){max-width:560px}
 .batch-empty-index{padding:6px 10px}.warning-text{color:var(--warning)}
 .return-batch{display:inline-flex;align-items:center;gap:4px;align-self:flex-start;color:var(--accent);font-size:12px;padding:0}.return-batch svg{width:14px;height:14px}
 @media(max-width:720px){.batch-controls{padding:10px 18px}.batch-task-scroll{padding:0 18px 20px}.batch-editor .batch-row{grid-template-columns:minmax(0,1fr);gap:9px}.batch-editor .batch-heading{display:none}.batch-editor .batch-row>.row{gap:8px}}
+
+.filter-trigger{display:inline-flex;align-items:center;justify-content:flex-start;gap:5px;min-height:28px;padding:4px 6px;margin-right:-6px;max-width:145px;border-radius:5px;color:var(--muted);font-size:11px}
+.filter-trigger>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.filter-trigger svg{width:12px;height:12px}
+.filter-trigger:hover,.filter-trigger[aria-expanded=true]{color:var(--accent);background:var(--accent-soft)}
+.filter-popover{position:fixed;inset:auto;margin:0;width:220px;max-width:calc(100vw - 24px);max-height:min(320px,calc(100dvh - 24px));overflow-y:auto;padding:5px;border:1px solid var(--line);border-radius:9px;background:var(--paper);color:var(--ink);box-shadow:var(--shadow)}
+.filter-option{display:flex;align-items:center;gap:9px;width:100%;min-height:35px;padding:7px 9px;border-radius:5px;text-align:left;font-size:12px}
+.filter-option:hover,.filter-option:focus-visible{background:var(--surface);outline:2px solid var(--accent);outline-offset:-2px}
+.filter-option[aria-selected=true]{background:var(--accent-soft);color:var(--accent)}
+.filter-check{display:flex;align-items:center;justify-content:center;width:15px;height:15px;flex:none}.filter-check svg{width:14px;height:14px}
+.filter-group-start{margin-top:5px;border-top:1px solid var(--line);border-top-left-radius:0;border-top-right-radius:0;padding-top:10px}
 </style>
 </head>
 <body>
@@ -209,7 +219,7 @@ function recordRow(r){
  return '<button class="record '+(r.id===ui.selected?'selected':'')+'" data-action="record" data-id="'+r.id+'" title="'+esc(r.title)+'"'+(r.id===ui.selected?' aria-current="true"':'')+'><div class="record-title">'+esc(r.title)+'</div><div class="record-meta"><span>'+esc(r.date)+'</span><span>'+time(r.duration)+'</span><span>'+r.speakers.length+' 人</span></div><div class="record-bottom"><span class="record-scene">'+esc(scene)+'</span><span class="record-status '+(['needs_review','failed'].includes(r.status)||r.unresolved?'warn':'')+'">'+esc(label)+'</span></div></button>';
 }
 
-function listPanel(){return '<section class="record-list" aria-label="录音库"><div class="list-top"><div class="row spread"><h2>'+esc(ui.filter==='all'?'我的声笺':ui.filter==='waiting'?'待核对录音':sceneName(ui.filter))+'</h2><span id="result-count" class="small muted">'+filtered().length+' 条</span></div><label class="search">'+icon('search')+'<span class="sr-only">搜索录音</span><input id="record-search" placeholder="搜索录音、文件名…" value="'+esc(ui.search)+'" autocomplete="off"></label><div class="list-controls"><span>按导入时间排列</span><select id="library-filter" aria-label="整理场景筛选">'+option('all','全部场景',ui.filter)+option('waiting','待核对',ui.filter)+sceneOptions(ui.filter)+'</select></div></div><div class="records" id="records">'+recordRows()+'</div><div class="list-foot">虚构示例，按转写内容匹配场景</div></section>'}
+function listPanel(){return '<section class="record-list" aria-label="录音库"><div class="list-top"><div class="row spread"><h2>'+esc(ui.filter==='all'?'我的声笺':ui.filter==='waiting'?'待核对录音':sceneName(ui.filter))+'</h2><span id="result-count" class="small muted">'+filtered().length+' 条</span></div><label class="search">'+icon('search')+'<span class="sr-only">搜索录音</span><input id="record-search" placeholder="搜索录音、文件名…" value="'+esc(ui.search)+'" autocomplete="off"></label><div class="list-controls"><span>按导入时间排列</span>'+libraryFilterControl()+'</div></div><div class="records" id="records">'+recordRows()+'</div><div class="list-foot">虚构示例，按转写内容匹配场景</div></section>'}
 function recordRows(){const list=filtered();return list.length?list.map(recordRow).join(''):'<div class="empty">'+icon('folder')+'<h3>这里还没有录音</h3><p>'+(ui.search?'换个关键词，或清空筛选。':'一次导入多条录音，让 AI 分别整理。')+'</p><button class="btn subtle" data-action="'+(ui.search?'clear-search':'import')+'">'+(ui.search?'清空搜索':'导入录音')+'</button></div>'}
 function cite(id){const s=recordSources(current()).find(x=>x.id===id);return s?'<button class="cite '+(ui.evidence===id?'selected':'')+'" data-action="cite" data-id="'+id+'" aria-label="查看 '+time(s.at)+' 原文">'+icon('link')+time(s.at)+'</button>':'<span class="pill">来源未载入</span>'}
 function render(preserve=false){
@@ -444,6 +454,18 @@ document.addEventListener('change',e=>{
  if(el.id==='provider'){const f=document.getElementById('model-form');f.endpoint.value=el.value==='deepseek'?'https://api.deepseek.com':el.value==='local'?'http://localhost:11434/v1':'https://api.example.com/v1';f.model.value=el.value==='deepseek'?'deepseek-flash':el.value==='local'?'your-local-model':'your-model';document.getElementById('key-optional').textContent=el.value==='local'?'（本地服务可留空）':'';document.getElementById('model-message').textContent='配置已调整，请重新检查连接。'}
  if(el.id==='platform'){const f=document.getElementById('storage-form');f.workspace.value=el.value==='windows'?'D:\\Sonafolio':'/Users/you/Sonafolio';f.workspace.dispatchEvent(new Event('input',{bubbles:true}))}
 });
+
+function libraryFilterControl(){
+ const options=[['all','全部场景'],['waiting','待核对'],...scenes.filter(s=>s.enabled&&!s.draft||s.id===ui.filter).map(s=>[s.id,s.name])];
+ return '<button id="library-filter" class="filter-trigger" type="button" aria-label="整理场景筛选" aria-haspopup="listbox" aria-expanded="false" aria-controls="library-filter-menu"><span>'+esc(options.find(([id])=>id===ui.filter)?.[1]||'全部场景')+'</span>'+icon('down')+'</button><div id="library-filter-menu" class="filter-popover" popover="manual" role="listbox" aria-label="整理场景">'+options.map(([id,label],i)=>'<button type="button" role="option" aria-selected="'+(ui.filter===id)+'" tabindex="-1" class="filter-option '+(i===2?'filter-group-start':'')+'" data-filter-value="'+esc(id)+'"><span class="filter-check">'+(ui.filter===id?icon('check'):'')+'</span><span>'+esc(label)+'</span></button>').join('')+'</div>';
+}
+function closeLibraryFilter(restore=true){const menu=document.getElementById('library-filter-menu'),button=document.getElementById('library-filter');if(menu?.matches(':popover-open'))menu.hidePopover();button?.setAttribute('aria-expanded','false');if(restore)button?.focus()}
+function openLibraryFilter(){const menu=document.getElementById('library-filter-menu'),button=document.getElementById('library-filter');if(!menu||!button)return;if(menu.matches(':popover-open')){closeLibraryFilter();return}menu.showPopover();button.setAttribute('aria-expanded','true');const r=button.getBoundingClientRect(),m=menu.getBoundingClientRect();menu.style.left=Math.max(12,Math.min(innerWidth-m.width-12,r.right-m.width))+'px';menu.style.top=(r.bottom+7+m.height<innerHeight-12?r.bottom+7:Math.max(12,r.top-m.height-7))+'px';(menu.querySelector('[aria-selected=true]')||menu.querySelector('[role=option]'))?.focus()}
+ document.addEventListener('click',e=>{if(e.target.closest('#library-filter')){openLibraryFilter();return}const option=e.target.closest('[data-filter-value]');if(option){ui.filter=option.dataset.filterValue;closeLibraryFilter(false);render();document.getElementById('library-filter')?.focus()}});
+ document.addEventListener('pointerdown',e=>{if(!e.target.closest('#library-filter,#library-filter-menu'))closeLibraryFilter(false)});
+ document.addEventListener('keydown',e=>{const trigger=e.target.id==='library-filter',option=e.target.closest('#library-filter-menu [role=option]');if(trigger&&['ArrowDown','ArrowUp','Enter',' '].includes(e.key)){e.preventDefault();openLibraryFilter();return}if(!option)return;const options=[...option.parentElement.querySelectorAll('[role=option]')],at=options.indexOf(option);if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?0:e.key==='End'?options.length-1:(at+(e.key==='ArrowDown'?1:-1)+options.length)%options.length;options[next].focus()}else if(e.key==='Escape'){e.preventDefault();closeLibraryFilter()}else if(e.key==='Tab'){closeLibraryFilter()}else if(e.key==='Enter'||e.key===' '){e.preventDefault();option.click()}});
+ window.addEventListener('resize',()=>closeLibraryFilter(false));
+
 render();
 
 </script>
