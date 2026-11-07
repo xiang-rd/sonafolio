@@ -13,6 +13,7 @@
 | [当前状态与下一步](docs/status.md) | 做到了哪里、有什么证据、下一项任务是什么 |
 | [需求](docs/requirements.md) | 产品目标、用户约束与验收要求 |
 | [架构与模块边界](docs/architecture.md) | 当前调用关系、数据契约、未来桌面方案和拆分边界 |
+| [桌面交互设计稿](docs/desktop-prototype.html) | 待评审：录音、总结、模型设置、目录与分类 / Prompt 管理 |
 | [开发与运行](docs/workspace.md) | 安装、命令、密钥位置、环境隔离和验证方法 |
 | [场景 Skill 协议](docs/skills.md) | 如何新增类目、Prompt、输出结构和模板 |
 | [Agent 协作入口](AGENTS.md) | 接手顺序、并行协作与交付要求 |

@@ -80,6 +80,16 @@ ASR 与说话人区分的数据依赖独立，图中的分支不代表已实现�
 
 ## 设计约束与资料
 
+### 桌面评审原型（待批准）
+
+[desktop-prototype.html](desktop-prototype.html) 是单文件离线交互稿，可直接在浏览器打开。采用录音库、复盘阅读区和引用原文侧栏；另提供模型 / API Key、工作区 / 模型 / 缓存目录、行业 / 场景、Prompt 版本、录音重命名等操作。行业与场景分离、标题与原文件名分离属于本轮待评审设计，不视作已冻结协议。
+
+使用 `html-prototype` 与 `design-artifact` 技能制作；基于 MacWhisper、Granola、Notta 的官方公开资料提炼操作方式，引用和设计理由嵌在原型的“设计说明”中。未登录这些产品做完整实操验收。
+
+所有示例文字与进度均虚构；配置仅存页面内存，刷新清空，不调用 API 或模型，不改本地文件。设计中的目录切换、行业字段、模板版本管理和原文件重命名尚未接入核心；生产实现需补持久化、凭据边界、路径迁移、冲突处理和缓存失效策略。正式桌面仍按 T01 → 任务协议 / 运行包 → Tauri 集成推进，不能直接把此原型视为生产前端。
+
+### 核心约束
+
 原始声音区间、转写和来源引用均保留；不可靠归属不强行指派；不将 ASR 误识当作候选人能力缺陷；Schema 与编号合法不等于事实准确。工作区边界见 [workspace.md](workspace.md)，产品验收见 [requirements.md](requirements.md)。
 
 官方参考：[whisper.cpp](https://github.com/ggml-org/whisper.cpp)、[pyannote community-1](https://huggingface.co/pyannote/speaker-diarization-community-1)、[中文对齐模型](https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn)、[DeepSeek](https://api-docs.deepseek.com/)、[Tauri sidecar](https://v2.tauri.app/develop/sidecar/)。实际依赖版本以 `uv.lock` 为准，外部兼容性以目标平台实测为准。
