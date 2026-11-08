@@ -5,12 +5,10 @@ from __future__ import annotations
 import hashlib
 import math
 from pathlib import Path
-import re
 
 import av
 import numpy as np
 
-from .paths import writable_path, write_json
 
 
 def fingerprint(path: Path) -> str:
@@ -43,16 +41,14 @@ def probe_audio(path: Path) -> dict:
 
 
 def run_directory(metadata: dict) -> Path:
-    stem = re.sub(r"[^\w.-]+", "_", Path(metadata["source"]).stem).strip("._")[:80] or "recording"
-    return writable_path(Path("data/runs") / f"{stem}--{metadata['sha256'][:12]}")
+    from .tasks import task_directory
+    return task_directory(metadata["sha256"])
 
 
 def record_input(path: Path) -> tuple[dict, Path]:
+    from .tasks import import_recording
     metadata = probe_audio(path)
-    directory = run_directory(metadata)
-    directory.mkdir(parents=True, exist_ok=True)
-    write_json(directory / "input.json", metadata)
-    return metadata, directory
+    return import_recording(path.resolve(strict=True), metadata)
 
 
 def decode_audio(path: Path, *, start: float = 0, duration: float | None = None, rate: int = 16000) -> np.ndarray:

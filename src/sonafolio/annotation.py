@@ -52,7 +52,7 @@ def annotate_segments(segments: list[dict], turns: list[dict]) -> list[dict]:
     return annotated
 
 
-def annotate_recording(transcript_path: Path, speakers_path: Path) -> dict:
+def annotate_recording(transcript_path: Path, speakers_path: Path, *, output_directory: Path | None = None) -> dict:
     transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
     speakers = json.loads(speakers_path.read_text(encoding="utf-8"))
     if transcript.get("source_sha256") != speakers.get("source_sha256"):
@@ -66,9 +66,11 @@ def annotate_recording(transcript_path: Path, speakers_path: Path) -> dict:
         raise ValueError("Speaker intervals do not cover the selected transcript range")
     # Derive the run folder from our existing transcript artifact. Output path
     # validation still rejects artifacts or symlinks that escape the workspace.
-    directory = writable_path(transcript_path.resolve().parents[2])
+    from .tasks import task_for_artifact
+    directory = task_for_artifact(transcript_path)
     digest = hashlib.sha256(transcript_path.read_bytes() + speakers_path.read_bytes()).hexdigest()[:12]
-    output = writable_path(directory / "annotated" / digest)
+    stage = "alignment" if (directory / "manifest.json").is_file() else "annotated"
+    output = writable_path(output_directory or directory / stage / ("annotated-" + digest))
     output.mkdir(parents=True, exist_ok=True)
     segments = annotate_segments(transcript["segments"], speakers["turns"])
     unresolved = sum(item["speaker_id"] is None for item in segments)

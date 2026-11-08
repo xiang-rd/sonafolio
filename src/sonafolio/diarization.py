@@ -94,7 +94,7 @@ def normalize_speakers(turns: list[dict], exclusive: list[dict]) -> tuple[list[d
     return rename(turns), rename(exclusive), list(mapping.values())
 
 
-def diarize_local(audio: Path, *, start: float = 0, duration: float | None = None, device: str = "cpu", num_speakers: int | None = None) -> dict:
+def diarize_local(audio: Path, *, start: float = 0, duration: float | None = None, device: str = "cpu", num_speakers: int | None = None, output_directory: Path | None = None) -> dict:
     if device not in {"cpu", "mps", "cuda"}:
         raise ValueError("device must be cpu, mps or cuda")
     if num_speakers is not None and num_speakers < 1:
@@ -109,6 +109,7 @@ def diarize_local(audio: Path, *, start: float = 0, duration: float | None = Non
         raise RuntimeError("Diarization dependencies are missing; run scripts/bootstrap.py --asr --diarization") from None
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     metadata, directory = record_input(audio)
+    audio = Path(metadata["source"])
     samples = decode_audio(audio, start=start, duration=duration)
     settings = {
         "revision": manifest["revision"], "device": device,
@@ -117,6 +118,8 @@ def diarize_local(audio: Path, *, start: float = 0, duration: float | None = Non
     key = hashlib.sha256(json.dumps(settings, sort_keys=True).encode()).hexdigest()[:12]
     end = start + len(samples) / 16000
     output = writable_path(directory / "diarization" / f"{round(start*1000)}-{round(end*1000)}ms--{key}")
+    if output_directory is not None:
+        output = writable_path(output_directory)
     output.mkdir(parents=True, exist_ok=True)
     write_json(output / "status.json", {"stage": "diarization", "state": "running"})
     began = time.monotonic()

@@ -7,3 +7,7 @@ thinking = false
 
 # Copy to sonafolio.toml to override defaults.
 # Store API keys through configure-deepseek, never in this file.
+
+[storage]
+# Relative to workspace; existing data is NOT moved when this changes.
+data_dir = "data"

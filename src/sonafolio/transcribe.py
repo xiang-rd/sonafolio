@@ -26,7 +26,7 @@ def timestamp(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
 
 
-def transcribe_local(audio: Path, *, model: Path, start: float = 0, duration: float | None = None, threads: int = 4, device: str = "auto", vad_model: Path | None = None) -> dict:
+def transcribe_local(audio: Path, *, model: Path, start: float = 0, duration: float | None = None, threads: int = 4, device: str = "auto", vad_model: Path | None = None, output_directory: Path | None = None) -> dict:
     try:
         backend_version = version("pywhispercpp")
     except PackageNotFoundError:
@@ -45,6 +45,7 @@ def transcribe_local(audio: Path, *, model: Path, start: float = 0, duration: fl
         if not vad_model.is_file():
             raise ValueError("VAD model is missing; use download-asr first")
     metadata, directory = record_input(audio)
+    audio = Path(metadata["source"])
     pcm = decode_audio(audio, start=start, duration=duration)
     end = start + len(pcm) / 16000
     selection = f"{round(start * 1000)}-{round(end * 1000)}ms"
@@ -59,6 +60,8 @@ def transcribe_local(audio: Path, *, model: Path, start: float = 0, duration: fl
                 "backend_version": backend_version, "prompt_version": 2}
     settings_hash = hashlib.sha256(json.dumps(settings, sort_keys=True).encode()).hexdigest()[:12]
     output = writable_path(directory / "asr" / f"{selection}--{settings_hash}")
+    if output_directory is not None:
+        output = writable_path(output_directory)
     output.mkdir(parents=True, exist_ok=True)
     began = time.monotonic()
     write_json(output / "status.json", {"stage": "asr", "state": "running", "speakers": "pending"})

@@ -14,15 +14,25 @@ def workspace_root() -> Path:
     return Path(configured).resolve(strict=True)
 
 
-def writable_path(relative: str | Path) -> Path:
+def workspace_path(relative: str | Path) -> Path:
     root = workspace_root()
     candidate = (root / relative).resolve()
     if not candidate.is_relative_to(root):
         raise ValueError(f"Output path must remain inside the workspace: {relative}")
+    return candidate
+
+
+def writable_path(relative: str | Path) -> Path:
+    root = workspace_root()
+    candidate = workspace_path(relative)
     # Keep all generated media/results separate from the read-only inputs.
     inputs = (root / "data/input").resolve()
     if candidate == inputs or inputs in candidate.parents:
         raise ValueError("Generated files must not overwrite the input directory")
+    # Managed original audio is immutable through every generated-file API.
+    for parent in candidate.parents:
+        if parent.name == "input" and (parent.parent / "manifest.json").is_file():
+            raise ValueError("Generated files must not overwrite managed task inputs")
     return candidate
 
 

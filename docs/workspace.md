@@ -57,42 +57,64 @@ POSIX 系统保存时设置 `0600` 权限；Windows 凭据访问控制尚需单�
 
 ## 业务数据与备份
 
-当前 CLI 的业务数据默认根目录为工作区内的 `data/`，与 `.models/`、`.cache/` 分开。以下是迁移前的实际布局：
+业务数据默认根目录是工作区内的 `data/`，新录音原始文件、阶段结果及各分析版本聚合在 `runs/<任务 ID>/`，全局分析索引为 `index.sqlite`。详细结构见[任务数据布局](architecture.md#任务数据布局)。现有 `data/input/`、`data/output/` 和旧运行目录没有自动迁移，`validation/` 私有基线继续保留。
 
-```text
-data/
-  input/          原始录音，处理时只读
-  runs/           每条录音的元信息、转写、说话人、对齐及 LLM 检查点
-  output/         按场景、运行版本保存总结 JSON、Markdown 和来源页
-  index.sqlite    已完成分析的索引，目前不是完整任务数据库
-  validation/     本地私有验证记录
+`probe` 和音频阶段会导入录音：创建受管副本并核对 SHA-256，源文件不改动；重复导入同内容复用同一任务。任务 ID 与显示标题分离；`rename-task` 只改标题，不改受管音频文件名和来源引用。
+
+在本地 `sonafolio.toml` 中设置 `[storage] data_dir = "data"` 可修改 CLI 的数据根目录；必须是工作区内专用相对目录，不得占用模型、缓存、密钥、环境、源码或场景目录，符号链接解析后仍须在工作区内。目录自动写入忽略业务内容的 `.gitignore`，避免自定义目录中的私有文件进入 Git。模型和运行缓存继续由工作区启动器管理。浏览器原型设置仍只保存在内存，尚未接入此配置文件。
+
+变更配置不会搬迁已有数据。当前提供旧布局到新任务结构的复制迁移，不提供任意两数据根目录间的一键搬迁。迁移前备份，迁移失败保留旧文件；不通过替换路径字符串代替实际复制与引用校验。
+
+备份前结束写入任务，备份数据根目录、自定义 `skills/`（如有）和 `sonafolio.toml`。单个完整任务目录可独立备份，但还原到另一工作区后仍需重建索引；自动任务包导入尚未提供，旧诊断文件中的绝对路径不作为新任务身份依据。密钥单独安全保管，不随源码或普通分享包分发；模型和下载缓存可重建。Git 不包含业务数据，提交不能代替备份。
+
+## 统一运行与恢复
+
+完成模型准备后，在项目根目录执行（Windows 将 `python3` 替换为 `py -3`）：
+
+```sh
+# 默认本地处理并生成待发送文本预览，不请求 LLM
+python3 -B scripts/workspace.py run -- sonafolio run "/path/to/recording.m4a"
+
+# 明确调用 DeepSeek 分类与总结；仅发送文字、编号、时间和场景指令
+python3 -B scripts/workspace.py run -- sonafolio run "/path/to/recording.m4a" --analysis cloud
+
+# 仅转写与说话人；可跳过 CTC 细化，但保留不可靠归属
+python3 -B scripts/workspace.py run -- sonafolio run "/path/to/recording.m4a" --analysis none --no-refine
+
+# 沿用保存的选项续跑；默认保留原来的云端／预览模式
+python3 -B scripts/workspace.py run -- sonafolio resume <任务ID>
+# 将已生成预览的任务切换为真实分析
+python3 -B scripts/workspace.py run -- sonafolio resume <任务ID> --analysis cloud
+
+python3 -B scripts/workspace.py run -- sonafolio rename-task <任务ID> "新的录音标题"
+python3 -B scripts/workspace.py run -- sonafolio rebuild-index
+
+# 旧运行目录先预览；--apply 才复制迁移，始终保留旧文件
+python3 -B scripts/workspace.py run -- sonafolio migrate-run "data/runs/<旧运行目录>"
+python3 -B scripts/workspace.py run -- sonafolio migrate-run "data/runs/<旧运行目录>" --apply
 ```
 
-已确认的目标布局将一条录音的原始文件、阶段产物和各分析版本全部收进 `data/runs/<任务 ID>/`，仅全局索引留在 `data/index.sqlite`；具体目录与身份／版本规则见[架构中的目标布局](architecture.md#已确认的数据布局待实施)。重新总结在同一任务内新增分析版本，重命名不改变任务 ID。当前命令与真实数据尚未迁移，下面的 CLI 示例继续使用现有路径。
+同一音频再执行 `run` 会校验并复用已完成阶段；改变参数会使相关阶段失效，`--force` 为所有阶段创建新尝试。Ctrl+C 会记录取消并终止子进程树，下次可续跑；硬终止后也可重试，但未完成的音频阶段需要重算。进度事件写 stderr，最终结果 JSON 写 stdout；诊断日志保存在任务阶段目录。
 
-桌面原型“设置 → 存储位置”已增加“录音与结果目录”，默认 `data`，显示相对于工作区解析后的完整路径。数据、模型、缓存必须在工作区内且不能相同或相互嵌套。此设置目前仅在页面内存中演示，CLI 尚未接入可配置的数据根目录，也没有迁移任何已有文件；浏览器路径校验不能替代后端的符号链接和实际路径校验。
-
-正式接入时，所有阶段、导出与索引须统一从数据根目录解析路径。桌面导入计划复制原始录音到受管目录，处理不覆盖原音频；当前 CLI 也能读取外部输入，不代表已实现自动复制。显示标题与录音身份应分离，重命名不能使已有来源引用失效。数据根目录变更与本次任务目录重组都需要显式迁移，不能把设置保存当作迁移成功。变更目录和迁移已有数据是两个操作：迁移须校验文件指纹、更新元信息和索引中的路径，失败时保留旧数据，不能仅替换配置字符串。
-
-备份前结束写入任务，备份 `data/`、自定义 `skills/`（如有）及本地 `sonafolio.toml`；目标布局下可单独备份或导出完整任务目录，但跨任务配置仍需另外保存。密钥单独安全保管，不随开源代码或普通分享包分发。模型和下载缓存可重建，不必每次纳入业务备份。当前录音、结果和密钥均被 Git 忽略，Git 提交不能代替数据备份。
+迁移将旧阶段和总结汇集到新任务，检查音频指纹、转写路径、来源引用和索引；旧规则快照不存在时明确记录缺失。迁移内容保留为历史版本，不自动视为新 Pipeline 的可复用缓存，重新执行 `run` 可能重算。此轮未自动迁移开发机真实数据。
 
 ## 当前分阶段运行
 
-输入放 `data/input/`，原始音频只读。以下 `<录音>`、`<范围和设置>`、`<指纹>` 是占位符，按每条命令返回的 `output_directory` 填入下一阶段路径。当前没有统一的 `sonafolio run` 命令。
+仍可独立调用各阶段。输入可为外部文件或旧 `data/input/` 中的录音，都会导入受管副本；以下使用旧输入路径演示，`<任务ID>`、`<ASR版本>`、`<说话人版本>`、`<归属版本>`、`<细化版本>` 为占位符，按实际命令返回的 `output_directory` 传递路径。
 
 ```sh
 python3 -B scripts/workspace.py run -- sonafolio probe "data/input/recording.m4a"
 python3 -B scripts/workspace.py run -- sonafolio transcribe "data/input/recording.m4a" --model .models/whisper.cpp/ggml-large-v3-turbo-q5_0.bin
 python3 -B scripts/workspace.py run -- sonafolio diarize "data/input/recording.m4a"
-python3 -B scripts/workspace.py run -- sonafolio annotate "data/runs/<录音>/asr/<范围和设置>/transcript.json" "data/runs/<录音>/diarization/<范围和设置>/speakers.json"
-python3 -B scripts/workspace.py run -- sonafolio refine "data/runs/<录音>/annotated/<指纹>/transcript.json" "data/runs/<录音>/diarization/<范围和设置>/speakers.json"
+python3 -B scripts/workspace.py run -- sonafolio annotate "data/runs/<任务ID>/asr/<ASR版本>/transcript.json" "data/runs/<任务ID>/diarization/<说话人版本>/speakers.json"
+python3 -B scripts/workspace.py run -- sonafolio refine "data/runs/<任务ID>/alignment/<归属版本>/transcript.json" "data/runs/<任务ID>/diarization/<说话人版本>/speakers.json"
 python3 -B scripts/workspace.py run -- sonafolio list-skills
 
 # 仅生成发送计划和完整文本预览，不调用 API
-python3 -B scripts/workspace.py run -- sonafolio analyze "data/runs/<录音>/refined/<指纹>/transcript.json" --dry-run
+python3 -B scripts/workspace.py run -- sonafolio analyze "data/runs/<任务ID>/alignment/<细化版本>/transcript.json" --dry-run
 
 # 这条会向 DeepSeek 发送转写文本、时间戳、说话人和来源 ID、场景指令
-python3 -B scripts/workspace.py run -- sonafolio analyze "data/runs/<录音>/refined/<指纹>/transcript.json"
+python3 -B scripts/workspace.py run -- sonafolio analyze "data/runs/<任务ID>/alignment/<细化版本>/transcript.json"
 ```
 
 ASR 和 diarize 可用 `--start`、`--duration` 做同一范围的短样本；仅一端截短会导致后续范围不匹配。ASR 的 `--device cpu` 关闭 GPU，默认 `auto`。diarize / refine 默认 CPU；Mac MPS 需显式 `--device mps`，CUDA 等设备须在目标环境另行验证。说话人数默认自动估计，不要求提前标注候选人。
@@ -116,4 +138,4 @@ git diff --check
 
 `.runtime`、`.venv`、`.cache`、`.models`、`.tmp`、`data` 和 `dist` 均忽略版本管理。清理前备份输入、结果和本地密钥，只删除明确可重建的目录；不要整目录清空用户数据。
 
-迁移机器或更换项目路径后重建 Python／虚拟环境，不直接搬运 `.venv`。模型可单独迁移并校验版本；现有音频元信息和 SQLite 结果可能含绝对路径，还需迁移或重新建立索引。目前尚无通用的一键迁移命令。
+迁移机器或更换项目路径后重建 Python／虚拟环境，不直接搬运 `.venv`。模型可单独迁移并校验版本；现有音频元信息和 SQLite 结果可能含绝对路径，还需迁移或重新建立索引。旧运行结构有显式复制迁移命令；跨机器完整环境和任意数据根目录搬迁仍无通用一键命令。

@@ -16,7 +16,7 @@ app = typer.Typer(no_args_is_help=True, add_completion=False, help="Sonafolio: l
 
 @app.command()
 def probe(audio: Path = typer.Argument(..., exists=True, dir_okay=False)):
-    """Read media metadata and fingerprint without modifying the input."""
+    """Import a verified managed copy and report media metadata; original is unchanged."""
     metadata, directory = record_input(audio)
     typer.echo(json.dumps({**metadata, "run_directory": str(directory)}, ensure_ascii=False, indent=2))
 
@@ -165,9 +165,75 @@ def analyze(
     typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
 
 
+@app.command()
+def run(
+    audio: Path = typer.Argument(..., exists=True, dir_okay=False),
+    model: Path = typer.Option(Path(".models/whisper.cpp/ggml-large-v3-turbo-q5_0.bin")),
+    vad_model: Path = typer.Option(Path(".models/whisper-vad/ggml-silero-v6.2.0.bin")),
+    start: float = typer.Option(0, min=0),
+    duration: float | None = typer.Option(None, min=0.01),
+    threads: int = typer.Option(4, min=1),
+    asr_device: str = typer.Option("auto"),
+    speaker_device: str = typer.Option("cpu"),
+    num_speakers: int | None = typer.Option(None, min=1),
+    refine: bool = typer.Option(True, "--refine/--no-refine"),
+    alignment_device: str = typer.Option("cpu"),
+    analysis: str = typer.Option("preview", help="preview: local outbound preview (default); cloud: send text to DeepSeek; none: transcription only"),
+    skill: str | None = typer.Option(None),
+    skills_dir: Path | None = typer.Option(None, exists=True, file_okay=False),
+    prompt: Path | None = typer.Option(None, exists=True, dir_okay=False),
+    merge_max_tokens: int = typer.Option(16384, min=1, max=32768),
+    force: bool = typer.Option(False, help="New stage attempts; retain all previous results"),
+):
+    """Import one recording and run/resume ASR, speakers, alignment and analysis."""
+    from .pipeline import RunOptions, run_pipeline
+    options = RunOptions(model=str(model), vad_model=str(vad_model), start=start, duration=duration, threads=threads,
+                         asr_device=asr_device, speaker_device=speaker_device, num_speakers=num_speakers,
+                         refine=refine, alignment_device=alignment_device, analysis=analysis, skill=skill,
+                         skills_dir=str(skills_dir) if skills_dir else None, prompt=str(prompt) if prompt else None,
+                         merge_max_tokens=merge_max_tokens)
+    result = run_pipeline(audio, options=options, force=force, on_event=_progress)
+    typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+def _progress(event):
+    typer.echo(json.dumps(event, ensure_ascii=False), err=True)
+
+
+@app.command()
+def resume(task_id: str, analysis: str | None = typer.Option(None, help="Override none/preview/cloud; omit to keep saved mode")):
+    """Resume a task with its saved options; verify results before reusing."""
+    from .pipeline import resume_pipeline
+    typer.echo(json.dumps(resume_pipeline(task_id, analysis=analysis, on_event=_progress), ensure_ascii=False, indent=2))
+
+
+@app.command("rename-task")
+def rename(task_id: str, title: str):
+    """Change the display title; preserve source filename, task ID and references."""
+    from .tasks import rename_task
+    typer.echo(json.dumps(rename_task(task_id, title), ensure_ascii=False, indent=2))
+
+
+@app.command("rebuild-index")
+def rebuild():
+    """Rebuild managed analysis indexes; retain legacy entries."""
+    from .tasks import rebuild_index
+    typer.echo(json.dumps(rebuild_index(), ensure_ascii=False, indent=2))
+
+
+@app.command("migrate-run")
+def migrate(legacy: Path = typer.Argument(..., exists=True, file_okay=False), apply: bool = typer.Option(False, help="Copy and validate; default only previews the migration")):
+    """Copy a legacy run and its results into one managed task; retain originals."""
+    from .migration import migrate_legacy
+    typer.echo(json.dumps(migrate_legacy(legacy, apply=apply), ensure_ascii=False, indent=2))
+
+
 def main():
     try:
         app()
+    except KeyboardInterrupt:
+        typer.echo("Sonafolio: cancelled; completed stages are retained", err=True)
+        raise SystemExit(130) from None
     except (OSError, ValueError, RuntimeError, EOFError) as error:
         typer.echo(f"Sonafolio: {error}", err=True)
         raise SystemExit(1) from None

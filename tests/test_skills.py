@@ -72,6 +72,19 @@ class SkillTests(unittest.TestCase):
                 self.assertIn('sources.md#seg-000000',(output/'summary.md').read_text())
                 with sqlite3.connect(root/'data/index.sqlite') as db:
                     self.assertEqual(db.execute('SELECT COUNT(*) FROM analyses').fetchone()[0],2)
+                before=(output/'summary.json').read_bytes()
+                forced=analyze_recording(path,call=fake,force=True)
+                self.assertNotEqual(forced['output_directory'],result['output_directory'])
+                self.assertEqual((output/'summary.json').read_bytes(),before)
+                self.assertEqual(len(calls),count+4)
+                self.assertTrue((Path(forced['output_directory'])/'scene.json').is_file())
+                route=next((output/'checkpoints').glob('route-*.json'))
+                corrupted=json.loads(route.read_text());corrupted['result']['reason']='格式合法但已损坏'
+                route.write_text(json.dumps(corrupted))
+                count_before=len(calls)
+                analyze_recording(path,call=fake)
+                self.assertEqual(len(calls),count_before+1)
+                self.assertEqual(json.loads(route.read_text())['result']['reason'],'技术面试')
 
     def test_cyclic_custom_skills_are_rejected(self):
         (ROOT/'.tmp').mkdir(exist_ok=True)

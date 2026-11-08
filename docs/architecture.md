@@ -18,7 +18,7 @@ M4A → probe / record_input
                   summary.md / summary.json / sources.md + SQLite 索引
 ```
 
-ASR 与说话人区分的数据依赖独立，图中的分支不代表已实现自动并行调度。当前需要分别调用音频阶段并传递路径；`analyze_recording` 内部才有自动编排。`refine` 用于改善待确认归属，`analyze` 也接受已完成说话人合并的转写；保留不确定性，不强制把每句话归到某个人。
+ASR 与说话人区分的数据依赖独立，图中的分支不代表已实现自动并行调度。`pipeline.py:run_pipeline` 现已顺序编排这些阶段，也可继续分别调用阶段函数；目前不自动并行执行 ASR 与说话人区分。`refine` 用于改善待确认归属，`analyze` 也接受已完成说话人合并的转写；保留不确定性，不强制把每句话归到某个人。
 
 ## 模块与现有调用边界
 
@@ -32,6 +32,7 @@ ASR 与说话人区分的数据依赖独立，图中的分支不代表已实现�
 | LLM 适配 | `llm.py:request_json/load_settings` | 指令／文本／Schema → 校验结果和调用元信息 | `test_llm.py` |
 | 场景 Skill | `skills.py:SkillRegistry/render_summary`、`builtin_skills/` | 清单／Prompt／Schema／模板 → 场景定义与 Markdown | `test_skills.py` |
 | 内容分析与输出 | `analysis.py:analyze_recording` | 带说话人转写 → 分类、提取、汇总、来源页、索引 | `test_skills.py` |
+| 任务存储与编排 | `tasks.py`、`pipeline.py`、`processes.py`、`_pipeline_worker.py`、`migration.py` | 录音 → 受管任务、阶段版本、进度事件、恢复／取消、复制迁移与索引重建 | `test_tasks_pipeline.py` |
 | 用户入口 | `cli.py`、`__main__.py` | 参数 → 核心函数 → JSON 结果或错误退出 | CLI 帮助检查及相关模块测试 |
 
 拆分 Agent 时可按表分工。`cli.py`、依赖与锁文件、公共契约文档属于共享修改点；由集成负责人合并，避免多个分支同时调整入口和协议。未来桌面模块尚无源码目录，不提前创建空目录。
@@ -42,22 +43,22 @@ ASR 与说话人区分的数据依赖独立，图中的分支不代表已实现�
 
 | 产物 | 当前关键字段与语义 |
 | --- | --- |
-| `data/runs/<录音与指纹>/input.json` | 原始音频绝对路径 `source`、`sha256`、时长和媒体信息 |
+| `data/runs/<完整 SHA-256>/manifest.json` | `schema_version=1`、稳定 `task_id`、标题、原音频信息与相对路径、任务状态、配置、各阶段尝试和分析版本；旧 `input.json` 仍可读 |
 | `asr/<范围与设置>/transcript.json` | `schema_version=1`、`source_sha256`、`range`、`segments`；片段含 `id/start/end/text/speaker_id/role`，ASR 阶段说话人为空 |
 | `diarization/<范围与设置>/speakers.json` | 同一音频指纹与范围、`speaker_ids`、允许重叠的 `turns`、单说话人视图 `exclusive_turns`；区间含 `start/end/speaker_id` |
-| `annotated/<指纹>/transcript.json` | 保留原文和片段 ID，增加候选声音、覆盖量与归属状态；不清楚时 `speaker_id=null` |
-| `refined/<指纹>/transcript.json` | 保留原文，拆分片段通过 `source_segment_id` 关联原始片段；混合精度，字符时间为模型估计 |
-| `analysis/<设置指纹>/` | `route-*.json`、`notes-*.json`、带预算和版本的合并结果、状态、预览或失败诊断 |
-| `data/output/<类目层级>/<运行标识>/` | `summary.json` 含 `metadata/classification/result`；`summary.md` 的引用指向 `sources.md` 的片段锚点 |
+| `alignment/<归属版本>/transcript.json` | 保留原文和片段 ID，增加候选声音、覆盖量与归属状态；不清楚时 `speaker_id=null` |
+| `alignment/<细化版本>/transcript.json` | 保留原文，拆分片段通过 `source_segment_id` 关联原始片段；混合精度，字符时间为模型估计 |
+| `analysis/<分析版本>/checkpoints/` | `route-*.json`、`notes-*.json`、带预算和版本的合并结果、状态、预览或失败诊断 |
+| `analysis/<分析版本>/` | `summary.json` 含 `metadata/classification/result`；`summary.md` 的引用指向 `sources.md` 的片段锚点 |
 | `data/index.sqlite` | 目前只有 `analyses` 结果索引；不是完整任务队列或统一 Pipeline 状态库 |
 
 时间使用相对于原始录音的秒数，禁止按分块重新归零。声音 ID 仅在同一次录音处理范围内稳定，不表示跨录音身份；业务角色在 LLM 阶段推断。合并前验证来源指纹和范围；声音聚类不能按 LLM 分块重新执行。
 
 转写可为 `completed_with_unresolved_segments`，表示计算完成但仍有归属不确定性。`status.json` 的 `completed` 仅表示阶段执行成功，不证明识别准确。现有产物有基础版本字段，但并非所有字段都有独立 Schema；变更字段、目录层级或状态语义时，要同步所有生产者、消费者、缓存版本及兼容策略。
 
-## 已确认的数据布局（待实施）
+## 任务数据布局
 
-2026-11-08 确认：取消业务数据顶层分散的 `input/`、`runs/`、`output/`，以一条录音的处理任务为聚合单位。这里的 run 是长期稳定的录音任务，不是每次命令调用；重新总结不创建另一份原始录音。以下为目标结构，前述阶段产物表仍描述当前代码。
+2026-11-08 确认并实现：新录音导入时将原始音频复制到任务内，取消顶层 `input/`、`output/` 的新写入。run 是长期稳定的录音任务，不是每次命令调用；任务 ID 为完整音频 SHA-256，相同内容再次导入返回同一任务。旧目录继续保留、可读，通过独立命令复制迁移。
 
 ```text
 data/
@@ -70,6 +71,7 @@ data/
       alignment/             合并、对齐与归属结果及阶段版本
       analysis/
         <分析版本>/
+          catalog.json       分析开始时的场景目录快照
           scene.json         本次使用的场景快照
           checkpoints/       分类、分块提取、合并与恢复记录
           summary.json
@@ -80,19 +82,24 @@ data/
 
 - 任务 ID 独立于显示标题和原文件名；录音指纹用于完整性与复用校验，重命名不改变任务身份或引用。
 - 每个任务目录包含其处理所需的录音、阶段产物和分析版本，不依赖另一个任务目录；模型、下载缓存、密钥和全局场景定义仍独立管理。分析所用场景保存快照，不以最新场景覆盖历史。
-- 修改 Prompt、场景或模型后，按依赖与参数生成新的阶段／分析版本；可复用的转写与说话人结果保留，历史结果不隐式覆盖。具体版本字段和 manifest Schema 在实现时定义。
-- 批量导入创建多个任务，通过批次 ID 关联；批次不拥有唯一的原始录音副本。按场景组织主要通过索引和筛选实现，不再把唯一结果分散到顶层类目目录。
-- SQLite 保存跨任务索引，任务文件是索引重建的依据；完整任务目录应可独立备份和导出。索引重建与任务导入接口尚未实现。
-- 现有 `annotated/`、`refined/` 和独立 `data/output/` 需映射到目标结构，不能只改目录名。迁移同时更新所有生产者、消费者、来源链接和 SQLite 路径；先备份、校验音频指纹及引用，失败保留旧数据。旧布局在迁移验收前继续可读，不自动删除。
+- 修改 Prompt、场景或模型后，按依赖与参数生成新的阶段／分析版本；可复用的转写与说话人结果保留，历史结果不隐式覆盖。manifest 的 `stages` 按阶段保存尝试列表，每项包含签名、状态、相对目录、输入／设置指纹和完成产物的 SHA-256。签名不匹配或产物丢失／损坏时不复用；`--force` 新建尝试，保留历史。
+- 后续批量导入将创建多个任务，通过批次 ID 关联；当前仅预留 manifest 的 `batch_ids`，批次调度尚未实现。批次不拥有唯一的原始录音副本。按场景组织主要通过索引和筛选实现，不再把唯一结果分散到顶层类目目录。
+- SQLite 保存跨任务索引，任务文件是索引重建的依据；完整任务目录应可独立备份和导出。`rebuild-index` 校验受管音频、总结、转写与来源引用后，以事务重建受管分析行，保留旧版索引行；SQLite 仍只有 `analyses` 表，任务状态以 manifest 为准。
+- `migrate-run` 默认预览，`--apply` 复制旧 `annotated/`、`refined/` 到 `alignment/`，汇集旧总结与检查点，更新 JSON 路径并校验来源链接和索引。失败撤回本次发布的派生目录，原录音与旧结果始终保留；可能已导入的受管录音也保留。旧数据没有历史 Skill 全文时，`scene.json` 明确记录 `legacy_snapshot_unavailable`，不拿当前规则冒充历史。迁移产物用于查看和留档，尚不自动转换为新 Pipeline 的可复用尝试。
 - `data/validation/` 现有私有验证记录不是生产任务目录的一部分，本方案不移动或删除这些记录。
 
 ## 缓存与恢复边界
 
-- ASR、说话人、合并与对齐目录根据输入或参数区分版本，但当前调用这些阶段不会自动跳过已有计算。
+- 通过 `run` 执行时，按阶段输入内容、模型文件／revision 清单、后端版本与设置判断复用，并核对产物哈希；单阶段命令仍不自动跳过音频推理。模型目录的 revision 清单应与权重一起管理，不能修改权重后保留旧清单。
 - LLM 分类、提取和合并已有文件检查点，重跑会校验并复用；`--force` 重新调用模型。
 - 当前分析指纹包含整个转写、全部 Skill 定义及 LLM 设置；只改模板也可能使分析检查点失效。尚未实现独立的“仅重渲染”命令。
 - 最终合并预算和 `MERGE_VERSION` 单独区分结果，调整它们可以复用分类和提取检查点。详见 [Skill 协议](skills.md)。
-- 统一恢复、任务取消、并发控制和全链路状态机尚未实现，属于下一阶段工作。
+- 统一任务状态为 `imported/running/completed/preview_only/failed/cancelled`，阶段尝试为 `running/completed/failed/cancelled`。同任务通过 OS 文件锁拒绝并行写入；锁随进程退出释放，残留锁文件不代表仍在运行。硬中断可能留下 running 尝试，下次可重算，分析会续用已校验的分块检查点。
+- Pipeline 每阶段在独立 Python 进程中执行，取消令牌或 Ctrl+C 会清理推理进程组；Windows 使用进程树终止，尚待实机验收。不同任务的全局模型并发限制及批次恢复属于 T09。
+
+`run_pipeline(audio, options=RunOptions(...), cancelled=..., on_event=...)` 是核心入口；`resume_pipeline(task_id)` 沿用保存的参数。事件包含 `task_id/stage/state`，CLI 将事件写 stderr、最终 JSON 写 stdout；当前是阶段粒度，原生模型详细进度仍在各阶段本地文件。生产桌面协议的版本化属于 T04。
+
+默认 `analysis=preview`，完成本地识别／说话人与可选细化后生成发送计划；`none` 止于转写，`cloud` 显式发送转写给 DeepSeek。失败的分析继续使用自己的未完成版本，成功历史保持独立；只改合并预算时可复制匹配签名的分类／提取检查点，新预算仍生成独立结果。
 
 ## 已采纳的技术方向
 
@@ -100,9 +107,9 @@ data/
 
 后续保留 Python 处理核心，桌面方向采用 **Tauri 2 + TypeScript / React + Python 独立处理进程**。Rust 负责桌面生命周期和系统集成，不重写现有模型管线。CLI 与桌面复用同一核心；暂不为桌面强制引入 HTTP 服务。
 
-以下均为计划，不能当作已存在接口：
+桌面集成方向（除已有 CLI 编排外，其余尚未实现）：
 
-1. 新增 `sonafolio run <audio>`，管理阶段依赖、进度、取消、复用与失败恢复；仍保留单阶段命令。
+1. 已有 `sonafolio run <audio>`；后续桌面复用核心编排，仍保留单阶段命令。
 2. 为桌面定义带协议版本、任务 ID 的请求和事件。优先验证通过标准输入／输出传递 JSON Lines，日志与协议分流；具体字段在实现时确定。
 3. 桌面通过 sidecar 启动受控 Python 处理进程；分别制作 macOS Apple Silicon / Windows x64 运行包，再评估其他架构。
 4. 桌面用户选择可写工作区，环境、模型、推理缓存和结果放入该目录；安装目录与数据目录分离，不向应用包内部写数据。

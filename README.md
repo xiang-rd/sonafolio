@@ -6,7 +6,7 @@
 
 AI 原生方向：批量录音由 AI 自动匹配“整理场景”，新场景由用户关键词生成可编辑规则。相关交互见 v2 设计稿，场景生成接口和批次编排尚待接入核心。
 
-目前是 **0.1.0 原型**：已在 Apple Silicon macOS 上分阶段跑通一条约 73 分钟的真实面试录音。各阶段可独立调用，`analyze` 已串联分类、提取和汇总；统一的 `sonafolio run`、Windows 实机验收和桌面界面尚未实现。准确率尚未经过系统人工评估。
+目前是 **0.1.0 原型**：已在 Apple Silicon macOS 上分阶段跑通一条约 73 分钟的真实面试录音。各阶段可独立调用，`analyze` 已串联分类、提取和汇总；统一的 `sonafolio run` 已实现任务导入、阶段复用、失败续跑和取消；新增编排用合成数据验证，Windows 实机验收和桌面界面尚未完成。准确率尚未经过系统人工评估。
 
 ## 文档入口
 
@@ -29,8 +29,10 @@ AI 原生方向：批量录音由 AI 自动匹配“整理场景”，新场景�
 ```sh
 python3 -B scripts/bootstrap.py --asr --diarization --alignment
 python3 -B scripts/workspace.py run -- sonafolio --help
-python3 -B scripts/workspace.py run -- sonafolio probe "data/input/recording.m4a"
+python3 -B scripts/workspace.py run -- sonafolio probe "/path/to/recording.m4a"
 ```
+
+模型准备完毕后可运行 `python3 -B scripts/workspace.py run -- sonafolio run "/path/to/recording.m4a"`，默认仅在本地处理并生成发送预览；添加 `--analysis cloud` 才调用 DeepSeek。
 
 依赖安装不自动下载模型或发送录音。模型准备、各阶段调用和 DeepSeek 配置见[开发与运行](docs/workspace.md)。目前 ASR、说话人区分和对齐在本地执行，LLM 仅实现 DeepSeek 接口；其他本地／云端后端属于后续扩展。
 
@@ -51,10 +53,10 @@ sonafolio/
   .models/             本地模型
   .cache/              下载与推理框架缓存
   .tmp/                临时文件
-  data/                输入、阶段产物、类目结果、验证记录与索引
+  data/                每条录音的完整任务目录、索引及旧验证记录
   dist/                构建产物
 ```
 
-以上为当前布局。已确认的后续数据方案按录音任务聚合：`data/runs/<任务 ID>/` 包含原始录音、阶段结果和分析版本，全局 SQLite 保留在 `data/`；尚未迁移，详见[数据布局设计](docs/architecture.md#已确认的数据布局待实施)。
+新导入数据按录音任务聚合：`data/runs/<任务 ID>/` 包含原始录音、阶段结果和分析版本，全局 SQLite 保留在 `data/`；旧数据保留原位，可显式复制迁移，详见[数据布局设计](docs/architecture.md#任务数据布局)。
 
 真实录音、密钥、模型和环境均已忽略版本管理，不进入源码发布包。当前使用本地 Git，远程仓库尚未配置。代码许可证待选择；模型权重遵循各自许可证，不随源码分发。

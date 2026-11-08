@@ -79,23 +79,24 @@ def refine_segment(segment: dict, characters: list, turns: list[dict]) -> list[d
     return units
 
 
-def refine_recording(transcript_path: Path, speakers_path: Path, *, device: str = "cpu", limit: int | None = None) -> dict:
+def refine_recording(transcript_path: Path, speakers_path: Path, *, device: str = "cpu", limit: int | None = None, output_directory: Path | None = None) -> dict:
     if device not in {"cpu", "mps", "cuda"}:
         raise ValueError("Unsupported alignment device")
     transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
     speakers = json.loads(speakers_path.read_text(encoding="utf-8"))
     if transcript["source_sha256"] != speakers["source_sha256"]:
         raise ValueError("Alignment inputs belong to different recordings")
-    run = writable_path(transcript_path.resolve().parents[2])
-    metadata = json.loads((run / "input.json").read_text(encoding="utf-8"))
-    audio = Path(metadata["source"])
+    from .tasks import task_for_artifact, managed_input
+    run = task_for_artifact(transcript_path)
+    audio = managed_input(run) if (run / "manifest.json").is_file() else Path(json.loads((run / "input.json").read_text(encoding="utf-8"))["source"])
     if fingerprint(audio) != transcript["source_sha256"]:
         raise ValueError("Source audio has changed")
     model = writable_path(MODEL_DIR)
     manifest = json.loads((model / "sonafolio-model.json").read_text(encoding="utf-8"))
     settings = {"model_revision": manifest["revision"], "device": device, "limit": limit, "version": 1}
     key = hashlib.sha256(transcript_path.read_bytes() + speakers_path.read_bytes() + json.dumps(settings, sort_keys=True).encode()).hexdigest()[:12]
-    output = writable_path(run / "refined" / key)
+    stage = "alignment" if (run / "manifest.json").is_file() else "refined"
+    output = writable_path(output_directory or run / stage / ("refined-" + key))
     output.mkdir(parents=True, exist_ok=True)
     pending = [item for item in transcript["segments"] if item.get("speaker_id") is None]
     selected = pending if limit is None else pending[:limit]

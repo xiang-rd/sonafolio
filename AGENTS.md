@@ -14,7 +14,7 @@
 
 ## 开发边界
 
-- 保留 Python 处理核心；Tauri / Rust + TypeScript / React 是后续桌面方向，当前尚未实现。统一 Pipeline、通信协议和服务接口不能假定已经存在。
+- 保留 Python 处理核心；Tauri / Rust + TypeScript / React 是后续桌面方向，当前尚未实现。统一 Pipeline 已实现于 `pipeline.py`，任务存储在 `tasks.py`；桌面通信协议和服务接口不能假定已经存在。
 - 使用 `scripts/workspace.py run -- ...` 启动项目命令，依赖只进入工作区。不要修改系统 Python、全局包、Shell 配置、注册表或全局模型缓存。具体路径见运行手册。
 - 输入音频只读。生成文件必须经过工作区路径约束；不要删除或覆盖用户录音、密钥、模型和已有结果。
 - `.runtime/secrets/` 是本地明文凭据存储，已忽略版本管理；不打印、复制进文档、提交、打包或发送给模型。真实转写、日志、失败返回和模型文件也不纳入源码。

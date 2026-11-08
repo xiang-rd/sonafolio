@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
 import re
-import sqlite3
+import shutil
+import uuid
+from dataclasses import asdict
 
 from jsonschema import Draft202012Validator
 
@@ -97,7 +98,11 @@ def choose_category(results: list[dict], enabled_ids: set[str]) -> str:
 
 
 def cached_call(path: Path, instructions: str, content: str, schema: dict, allowed_ids: set[str], speaker_ids: set[str], settings, call, force: bool) -> dict:
-    if path.is_file() and not force:
+    identity = hashlib.sha256(json.dumps({"instructions": instructions, "content": content,
+        "schema": schema, "settings": settings.model_dump()}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    checksum = writable_path(path.with_suffix(".sha256"))
+    expected = identity + ":" + hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+    if path.is_file() and not force and checksum.is_file() and checksum.read_text(encoding="utf-8").strip() == expected:
         artifact = json.loads(path.read_text(encoding="utf-8"))
         Draft202012Validator(schema).validate(artifact["result"])
         validate_references(artifact["result"], allowed_ids, speaker_ids)
@@ -120,11 +125,12 @@ def cached_call(path: Path, instructions: str, content: str, schema: dict, allow
             raise
         artifact = {"result": result, "metadata": metadata}
         write_json(path, artifact)
+        checksum.write_text(identity + ":" + hashlib.sha256(path.read_bytes()).hexdigest() + "\n", encoding="utf-8")
         return artifact
     raise RuntimeError("No evidence-validated LLM result")
 
 
-def analyze_recording(transcript_path: Path, *, skill_id: str | None = None, skills_dir: Path | None = None, prompt_path: Path | None = None, force: bool = False, dry_run: bool = False, chunk_chars: int = 14000, merge_max_tokens: int = 16384, call=request_json) -> dict:
+def analyze_recording(transcript_path: Path, *, skill_id: str | None = None, skills_dir: Path | None = None, prompt_path: Path | None = None, force: bool = False, dry_run: bool = False, chunk_chars: int = 14000, merge_max_tokens: int = 16384, call=request_json, analysis_directory: Path | None = None) -> dict:
     if not 1 <= merge_max_tokens <= 32768:
         raise ValueError("Final merge token limit must be between 1 and 32768")
     transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
@@ -147,9 +153,42 @@ def analyze_recording(transcript_path: Path, *, skill_id: str | None = None, ski
         "settings": settings.model_dump(), "skill_override": skill_id,
         "prompt_override": override, "chunk_chars": chunk_chars, "pipeline_version": 1,
     }, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
-    run = writable_path(transcript_path.resolve().parents[2])
-    intermediate = writable_path(run / "analysis" / digest)
+    from .tasks import task_for_artifact, index_analysis
+    run = task_for_artifact(transcript_path)
+    output_key = f"{digest}-m{merge_max_tokens}-v{MERGE_VERSION}"
+    if force:
+        output_key += "-" + uuid.uuid4().hex[:12]
+    version_directory = writable_path(analysis_directory or run / "analysis" / output_key)
+    intermediate = writable_path(version_directory / "checkpoints")
+    # Merge budget changes reuse validated extraction without sharing mutable files.
+    if not intermediate.exists() and not force:
+        for marker in sorted((run / "analysis").glob("*/checkpoints/request-identity.json")):
+            try:
+                marker_value = json.loads(writable_path(marker).read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(marker_value, dict) or marker_value.get("digest") != digest:
+                continue
+            previous = marker.parent
+            if previous == intermediate:
+                continue
+            for checkpoint in previous.glob("*.json"):
+                if checkpoint.name.startswith(("route-", "notes-")) and not checkpoint.name.endswith(".failed.json"):
+                    target = writable_path(intermediate / checkpoint.name)
+                    checksum = writable_path(checkpoint.with_suffix(".sha256"))
+                    if target.exists() or not checksum.is_file():
+                        continue
+                    if not checksum.read_text(encoding="utf-8").strip().endswith(":" + hashlib.sha256(writable_path(checkpoint).read_bytes()).hexdigest()):
+                        continue
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(writable_path(checkpoint), target)
+                    shutil.copy2(checksum, writable_path(target.with_suffix(".sha256")))
     intermediate.mkdir(parents=True, exist_ok=True)
+    write_json(intermediate / "request-identity.json", {"digest": digest})
+    write_json(version_directory / "catalog.json", {
+        "schema_version": 1, "skills": {name: asdict(value) for name, value in registry.loaded.items()},
+        "routes": routes, "prompt_override": override,
+    })
     if dry_run:
         preview = "# 待发送给 DeepSeek 的文本预览\n\n此文件只在本地生成；本次没有发送录音文本。原始 M4A 不在请求中。\n\n"
         for index, chunk in enumerate(chunks):
@@ -189,6 +228,11 @@ def analyze_recording(transcript_path: Path, *, skill_id: str | None = None, ski
                           "method": "configured_override" if not classifications else "all_chunks_hierarchical_vote", "chunks": classifications}
         write_json(intermediate / "classification.json", classification)
         skill = registry.get(skill_id)
+        write_json(version_directory / "scene.json", {
+            "schema_version": 1, "selected": asdict(skill), "routes": routes,
+            "skill_digests": {name: value.digest for name, value in registry.loaded.items()},
+            "prompt_override": override,
+        })
         notes = []
         write_json(status, {"state": "running", "stage": "extraction", "processed": 0, "total": len(chunks)})
         instructions = (override if override is not None else skill.prompt)
@@ -215,11 +259,11 @@ def analyze_recording(transcript_path: Path, *, skill_id: str | None = None, ski
         merge_settings = settings.model_copy(update={"max_tokens": merge_max_tokens})
         merged = cached_call(intermediate / f"merged-m{merge_max_tokens}-v{MERGE_VERSION}.json", final_instruction, json.dumps(merge_content, ensure_ascii=False), skill.schema, all_ids, speaker_ids, merge_settings, call, force)
         artifacts.append(merged)
-        output_key = f"{digest}-m{merge_max_tokens}-v{MERGE_VERSION}"
-        output = writable_path(Path("data/output").joinpath(*skill_id.split("."), run.name + "--" + output_key))
+        output = version_directory
         output.mkdir(parents=True, exist_ok=True)
         metadata = {"skill_id": skill.id, "skill_version": skill.version, "skill_digest": skill.digest,
-                    "source_sha256": transcript["source_sha256"], "input_transcript": str(transcript_path),
+                    "source_sha256": transcript["source_sha256"], "input_transcript": transcript_path.resolve().relative_to(run).as_posix(),
+                    "task_id": run.name,
                     "alignment": transcript.get("alignment", {}), "settings": settings.model_dump(),
                     "merge_settings": merge_settings.model_dump(), "merge_version": MERGE_VERSION,
                     "chunks": len(chunks), "llm_calls": [item["metadata"] for item in artifacts]}
@@ -230,13 +274,7 @@ def analyze_recording(transcript_path: Path, *, skill_id: str | None = None, ski
             sources += f"<a id=\"{record['id']}\"></a>\n\n## {record['id']} · {timestamp(record['start'])} → {timestamp(record['end'])}\n\n"
             sources += "\n\n".join(f"**{part['speaker']}**：{part['text']}" for part in record["parts"]) + "\n\n"
         (output / "sources.md").write_text(sources, encoding="utf-8")
-        db = sqlite3.connect(writable_path("data/index.sqlite"))
-        try:
-            with db:
-                db.execute("CREATE TABLE IF NOT EXISTS analyses (job_id TEXT PRIMARY KEY, source_sha256 TEXT, skill_id TEXT, output_path TEXT, state TEXT, created_at TEXT)")
-                db.execute("INSERT OR REPLACE INTO analyses VALUES (?,?,?,?,?,?)", (output_key, transcript["source_sha256"], skill.id, str(output), "completed", datetime.now(timezone.utc).isoformat()))
-        finally:
-            db.close()
+        index_analysis(run, output)
         write_json(status, {"state": "completed", "stage": "analysis", "category": skill.id, "output_directory": str(output)})
         return {"output_directory": str(output), "category": skill.id, "chunks": len(chunks), "source_segments": len(records)}
     except Exception as error:
