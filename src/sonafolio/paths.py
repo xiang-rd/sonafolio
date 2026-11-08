@@ -44,3 +44,22 @@ def write_json(path: Path, value: dict | list) -> None:
     pending = writable_path(pending)
     pending.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n", encoding="utf-8")
     pending.replace(path)
+
+
+def model_path(relative: str | Path) -> Path:
+    """Resolve conventional .models paths through the active storage setting."""
+    from .storage_config import storage_roots
+    path = Path(relative)
+    if not path.is_absolute() and path.parts and path.parts[0] == '.models':
+        path = storage_roots(workspace_root())['models_dir'] / Path(*path.parts[1:])
+    return writable_path(path)
+
+
+def apply_cache_environment() -> None:
+    from .storage_config import storage_roots, CACHE_ENV
+    roots = storage_roots(workspace_root())
+    for key, relative in CACHE_ENV.items():
+        path = writable_path(roots['cache_dir'] / relative)
+        path.mkdir(parents=True, exist_ok=True); os.environ[key] = str(path)
+    os.environ['SONAFOLIO_MODELS_DIR'] = str(roots['models_dir'])
+    os.environ['SONAFOLIO_DATA_DIR'] = str(roots['data_dir'])

@@ -29,19 +29,20 @@ def transcribe(
     duration: float | None = typer.Option(None, min=0.01, help="Seconds to process; omit for the rest of the file"),
     threads: int = typer.Option(4, min=1),
     device: str = typer.Option("auto", help="auto (including GPU when available) or cpu"),
-    vad_model: Path = typer.Option(Path(".models/whisper-vad/ggml-silero-v6.2.0.bin"), exists=True, dir_okay=False, help="Local speech-activity detector to skip silence"),
+    vad_model: Path = typer.Option(Path(".models/whisper-vad/ggml-silero-v6.2.0.bin"), dir_okay=False, help="Local speech-activity detector to skip silence"),
 ):
     """Generate a Chinese ASR baseline. Speakers remain pending until diarization."""
     from .transcribe import transcribe_local
-    result = transcribe_local(audio, model=model, start=start, duration=duration, threads=threads, device=device, vad_model=vad_model)
+    from .paths import model_path
+    result = transcribe_local(audio, model=model_path(model), start=start, duration=duration, threads=threads, device=device, vad_model=model_path(vad_model))
     typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 @app.command("download-asr")
 def download_asr():
     """Explicitly download the public baseline model into the workspace."""
-    from .models import download_baseline, download_vad
-    typer.echo(json.dumps({"asr": str(download_baseline()), "vad": str(download_vad())}, indent=2))
+    from .model_manager import download_model
+    typer.echo(json.dumps([download_model('asr'),download_model('vad')]))
 
 
 @app.command("configure-hf")
@@ -94,8 +95,8 @@ def check_llm():
 @app.command("download-diarization")
 def download_diarization():
     """Download the gated community-1 model after accepting its conditions."""
-    from .diarization import download_diarization as download
-    typer.echo(str(download()))
+    from .model_manager import download_model
+    typer.echo(json.dumps(download_model('diarization')))
 
 
 @app.command()
@@ -125,8 +126,8 @@ def annotate(
 @app.command("download-alignment")
 def download_alignment():
     """Download and verify the public Chinese CTC model into the workspace."""
-    from .refinement import download_alignment as download
-    typer.echo(str(download()))
+    from .model_manager import download_model
+    typer.echo(json.dumps(download_model('alignment')))
 
 
 @app.command()

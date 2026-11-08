@@ -12,7 +12,7 @@ import uuid
 from typing import Literal
 
 from .audio import fingerprint, record_input
-from .paths import workspace_root, writable_path, write_json
+from .paths import workspace_root, writable_path, write_json, model_path
 from .processes import CancelledError, run_stage_process
 from .tasks import file_lock, load_manifest, managed_input, now, save_manifest, task_directory
 
@@ -69,15 +69,15 @@ def file_digest(path: str | Path) -> str:
 
 def stage_settings(stage: str, options: RunOptions) -> dict:
     if stage == 'asr':
-        return {'model': file_digest(writable_path(options.model)), 'vad': file_digest(writable_path(options.vad_model)) if options.vad_model else None,
+        return {'model': file_digest(model_path(options.model)), 'vad': file_digest(model_path(options.vad_model)) if options.vad_model else None,
                 'threads': options.threads, 'device': options.asr_device, 'range': [options.start, options.duration], 'backend': package_version('pywhispercpp')}
     if stage == 'diarization':
         from .diarization import MODEL_DIRECTORY
-        return {'model': file_digest(writable_path(Path(MODEL_DIRECTORY) / 'sonafolio-model.json')), 'range': [options.start, options.duration],
+        return {'model': file_digest(model_path(Path(MODEL_DIRECTORY) / 'sonafolio-model.json')), 'range': [options.start, options.duration],
                 'device': options.speaker_device, 'speakers': options.num_speakers, 'backend': package_version('pyannote.audio')}
     if stage == 'refinement':
         from .refinement import MODEL_DIR
-        return {'model': file_digest(writable_path(Path(MODEL_DIR) / 'sonafolio-model.json')), 'device': options.alignment_device,
+        return {'model': file_digest(model_path(Path(MODEL_DIR) / 'sonafolio-model.json')), 'device': options.alignment_device,
                 'backend': package_version('transformers'), 'torch': package_version('torch')}
     if stage == 'analysis':
         from .llm import load_settings
@@ -122,7 +122,7 @@ def run_pipeline(audio: Path, *, options: RunOptions | None = None, force: bool 
     options = replace(options) if options else RunOptions()
     options.validate()
     _, task = record_input(audio)
-    with file_lock(task / '.pipeline.lock'):
+    with file_lock(writable_path('.runtime/locks/storage.lock')), file_lock(task / '.pipeline.lock'):
         manifest = load_manifest(task)
         from .skills import SkillRegistry
         from .llm import load_settings

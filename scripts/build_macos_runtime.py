@@ -28,6 +28,7 @@ def build():
         for path in (destination/'python').rglob('.DS_Store'):path.unlink()
         for name,source in [('launch.py','runtime_launch.py'),('workspace_env.py','workspace.py')]:
             shutil.copy2(ROOT/'scripts'/source,destination/name)
+        shutil.copy2(ROOT/'src/sonafolio/storage_config.py',destination/'storage_config.py')
         manifest['wheel_sha256']=hashlib.sha256(wheel.read_bytes()).hexdigest()
         (destination/'runtime.json').write_text(json.dumps(manifest,indent=2)+'\n')
         print('Refreshed first-party code; dependency runtime unchanged')
@@ -58,6 +59,7 @@ def build():
     for path in stage.rglob('.DS_Store'):path.unlink()
     shutil.copy2(ROOT/'scripts/workspace.py',stage/'workspace_env.py')
     shutil.copy2(ROOT/'scripts/runtime_launch.py',stage/'launch.py')
+    shutil.copy2(ROOT/'src/sonafolio/storage_config.py',stage/'storage_config.py')
     (stage/'runtime.json').write_text(json.dumps({'schema_version':1,'platform':'macos-arm64',
         'python':platform.python_version(),'lock_sha256':hashlib.sha256((ROOT/'uv.lock').read_bytes()).hexdigest(),
         'app_version':'0.1.0','wheel_sha256':hashlib.sha256(wheel.read_bytes()).hexdigest(),'models_bundled':False},indent=2)+'\n')

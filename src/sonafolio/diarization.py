@@ -15,7 +15,7 @@ import time
 import numpy as np
 
 from .audio import decode_audio, record_input
-from .paths import writable_path, write_json
+from .paths import writable_path, write_json, model_path
 
 REPOSITORY = "pyannote/speaker-diarization-community-1"
 MODEL_DIRECTORY = ".models/pyannote-community-1"
@@ -36,7 +36,7 @@ def download_diarization() -> Path:
     from huggingface_hub import HfApi, snapshot_download
     from huggingface_hub.errors import HfHubHTTPError
     token = read_token()
-    directory = writable_path(MODEL_DIRECTORY)
+    directory = model_path(MODEL_DIRECTORY)
     directory.mkdir(parents=True, exist_ok=True)
     try:
         info = HfApi().model_info(REPOSITORY, token=token, files_metadata=True)
@@ -99,7 +99,7 @@ def diarize_local(audio: Path, *, start: float = 0, duration: float | None = Non
         raise ValueError("device must be cpu, mps or cuda")
     if num_speakers is not None and num_speakers < 1:
         raise ValueError("num_speakers must be positive when provided")
-    model = writable_path(MODEL_DIRECTORY)
+    model = model_path(MODEL_DIRECTORY)
     manifest_path = model / "sonafolio-model.json"
     if not manifest_path.is_file():
         raise RuntimeError("Local diarization model is missing; run download-diarization first")

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -65,11 +66,25 @@ def build_environment(root: Path, parent: dict[str, str], *, include_venv: bool 
     ):
         env.pop(key, None)
     # Validate all paths before creating anything.
+    contract = Path(__file__).resolve().parent / 'storage_config.py'
+    if not contract.exists(): contract = ROOT / 'src/sonafolio/storage_config.py'
+    spec = importlib.util.spec_from_file_location('sonafolio_storage_config', contract)
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    storage = module.storage_roots(root)
     paths = {key: local_path(root, value) for key, value in DIRECTORIES.items()}
+    for key, value in DIRECTORIES.items():
+        if value == '.cache' or value.startswith('.cache/'):
+            paths[key] = storage['cache_dir'] / Path(value).relative_to('.cache')
+    paths['SONAFOLIO_MODELS_DIR'] = storage['models_dir']
+    paths['SONAFOLIO_DATA_DIR'] = storage['data_dir']
     token = local_path(root, ".runtime/secrets/huggingface-token")
     venv_bin = local_path(root, ".venv/Scripts" if os.name == "nt" else ".venv/bin")
     for path in [*paths.values(), token.parent, *([venv_bin] if include_venv else [])]:
         path.mkdir(parents=True, exist_ok=True)
+    for path in storage.values():
+        path.mkdir(parents=True,exist_ok=True)
+        ignore=path/'.gitignore'
+        if not ignore.exists():ignore.write_text('# Sonafolio private storage\n*\n')
     env.update({key: str(path) for key, path in paths.items()})
     env.update({
         "HF_TOKEN_PATH": str(token),

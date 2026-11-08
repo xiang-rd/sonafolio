@@ -5,13 +5,13 @@ import json
 from pathlib import Path
 import sys
 
-from .paths import write_json
+from .paths import write_json, model_path
 
 
 def execute(name: str, inputs: dict, options: dict, output: Path, force: bool = False) -> dict:
     if name == 'asr':
         from .transcribe import transcribe_local
-        return transcribe_local(Path(inputs['audio']), model=Path(options['model']), vad_model=Path(options['vad_model']) if options['vad_model'] else None,
+        return transcribe_local(Path(inputs['audio']), model=model_path(options['model']), vad_model=model_path(options['vad_model']) if options['vad_model'] else None,
                                 start=options['start'], duration=options['duration'], threads=options['threads'], device=options['asr_device'], output_directory=output)
     if name == 'diarization':
         from .diarization import diarize_local

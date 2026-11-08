@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from .paths import writable_path, write_json
+from .paths import writable_path, write_json, model_path
 
 REPO = "ggerganov/whisper.cpp"
 FILENAME = "ggml-large-v3-turbo-q5_0.bin"
@@ -21,7 +21,7 @@ def download_vad() -> Path:
 
 def download_model(repository: str, filename: str, destination: str) -> Path:
     from huggingface_hub import HfApi, hf_hub_download
-    directory = writable_path(destination)
+    directory = model_path(destination)
     directory.mkdir(parents=True, exist_ok=True)
     info = HfApi().model_info(repository, files_metadata=True, token=False)
     entry = next(item for item in info.siblings if item.rfilename == filename)

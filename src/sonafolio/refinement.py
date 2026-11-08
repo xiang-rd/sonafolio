@@ -16,7 +16,7 @@ import numpy as np
 
 from .annotation import annotate_segments
 from .audio import decode_audio, fingerprint
-from .paths import writable_path, write_json
+from .paths import writable_path, write_json, model_path
 from .transcribe import timestamp
 
 MODEL_DIR = ".models/chinese-alignment"
@@ -26,7 +26,7 @@ MODEL_FILES = ["config.json", "preprocessor_config.json", "tokenizer_config.json
 
 def download_alignment() -> Path:
     from huggingface_hub import HfApi, snapshot_download
-    directory = writable_path(MODEL_DIR)
+    directory = model_path(MODEL_DIR)
     info = HfApi().model_info(MODEL_REPO, files_metadata=True, token=False)
     snapshot_download(MODEL_REPO, revision=info.sha, allow_patterns=MODEL_FILES, local_dir=str(directory), token=False)
     checked = []
@@ -91,7 +91,7 @@ def refine_recording(transcript_path: Path, speakers_path: Path, *, device: str 
     audio = managed_input(run) if (run / "manifest.json").is_file() else Path(json.loads((run / "input.json").read_text(encoding="utf-8"))["source"])
     if fingerprint(audio) != transcript["source_sha256"]:
         raise ValueError("Source audio has changed")
-    model = writable_path(MODEL_DIR)
+    model = model_path(MODEL_DIR)
     manifest = json.loads((model / "sonafolio-model.json").read_text(encoding="utf-8"))
     settings = {"model_revision": manifest["revision"], "device": device, "limit": limit, "version": 1}
     key = hashlib.sha256(transcript_path.read_bytes() + speakers_path.read_bytes() + json.dumps(settings, sort_keys=True).encode()).hexdigest()[:12]

@@ -7,20 +7,26 @@ import re
 import tomllib
 
 from .llm import LLMSettings, load_settings
-from .paths import workspace_root, writable_path
+from .paths import workspace_root, writable_path, apply_cache_environment
+from .storage_config import storage_roots
 from .tasks import data_root
 
 
 def get_settings():
     root=workspace_root()
     key=writable_path('.runtime/secrets/deepseek-api-key')
+    hf=writable_path('.runtime/secrets/huggingface-token')
+    roots=storage_roots(root)
+    from .model_manager import model_catalog
+    catalog=model_catalog()
+    ready={item['id']:item['ready'] for item in catalog['items']}
     return {'workspace':str(root),'llm':load_settings().model_dump(),'api_key_configured':key.is_file() and key.stat().st_size>0,
-            'model_files':{'asr':writable_path('.models/whisper.cpp/ggml-large-v3-turbo-q5_0.bin').is_file(),
-                           'diarization':writable_path('.models/pyannote-community-1/sonafolio-model.json').is_file(),
-                           'alignment':writable_path('.models/chinese-alignment/sonafolio-model.json').is_file()},
-            'storage':{'data_dir':str(data_root().relative_to(root)),'models_dir':'.models','cache_dir':'.cache'},
+            'hf_token_configured':hf.is_file() and hf.stat().st_size>0,
+            'model_files':{'asr':ready['asr'] and ready['vad'],'diarization':ready['diarization'],'alignment':ready['alignment']},
+            'storage':{name:path.relative_to(root).as_posix() for name,path in roots.items()},
             'appearance':tomllib.loads(writable_path('sonafolio.toml').read_text(encoding='utf-8')).get('desktop',{}).get('appearance','dark') if writable_path('sonafolio.toml').is_file() else 'dark',
-            'paths':{'data':str(data_root()),'models':str(root/'.models'),'cache':str(root/'.cache')}}
+            'paths':{name.removesuffix('_dir'):str(path) for name,path in roots.items()}}
+
 
 
 def _table(name, values):
@@ -32,7 +38,7 @@ def _table(name, values):
     return '\n'.join(lines)+'\n\n'
 
 
-def save_settings(*, llm=None, data_dir=None, api_key=None, appearance=None):
+def save_settings(*, llm=None, data_dir=None, api_key=None, appearance=None, models_dir=None, cache_dir=None, hf_token=None):
     path=writable_path('sonafolio.toml')
     original=path.read_text(encoding='utf-8') if path.exists() else ''
     tables=tomllib.loads(original)
@@ -41,14 +47,20 @@ def save_settings(*, llm=None, data_dir=None, api_key=None, appearance=None):
         settings=LLMSettings.model_validate(llm)
         if settings.provider!='deepseek':raise ValueError('Only DeepSeek is currently available')
         updates['llm']={**tables.get('llm',{}),**settings.model_dump()}
-    if data_dir is not None:
-        data_root(data_dir)
-        updates['storage']={**tables.get('storage',{}),'data_dir':data_dir}
+    directories={key:value for key,value in {'data_dir':data_dir,'models_dir':models_dir,'cache_dir':cache_dir}.items() if value is not None}
+    if directories:
+        storage_roots(workspace_root(),directories)
+        updates['storage']={**tables.get('storage',{}),**directories}
     if appearance is not None:
         if appearance not in {'light','dark','system'}:raise ValueError('Unknown appearance')
         updates['desktop']={**tables.get('desktop',{}),'appearance':appearance}
     if api_key is not None and (len(api_key)<16 or any(c.isspace() for c in api_key)):
         raise ValueError('Expected a complete API key without whitespace')
+    if hf_token is not None and (not hf_token.startswith('hf_') or len(hf_token)<16 or any(c.isspace() for c in hf_token)):
+        raise ValueError('Expected a Hugging Face read token')
+    for name in ('deepseek-api-key','huggingface-token'):
+        if writable_path('.runtime/secrets/'+name)!=workspace_root()/'.runtime/secrets'/name:
+            raise ValueError('Credential path must not be redirected through symlinks')
     secret=writable_path('.runtime/secrets/deepseek-api-key')
     if secret != workspace_root()/'.runtime/secrets/deepseek-api-key':
         raise ValueError('Credential path must not be redirected through symlinks')
@@ -61,12 +73,21 @@ def save_settings(*, llm=None, data_dir=None, api_key=None, appearance=None):
     tomllib.loads(updated)
     temporary=writable_path(path.with_suffix('.toml.tmp'))
     temporary.write_text(updated,encoding='utf-8');temporary.replace(path)
-    if api_key is not None:
+    for name,value in (('deepseek-api-key',api_key),('huggingface-token',hf_token)):
+        if value is None: continue
+        secret=writable_path('.runtime/secrets/'+name)
         secret.parent.mkdir(parents=True,exist_ok=True)
         temporary=writable_path(secret.with_name(secret.name+'.pending'))
         fd=os.open(temporary,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
-        with os.fdopen(fd,'w',encoding='utf-8') as stream:stream.write(api_key)
+        with os.fdopen(fd,'w',encoding='utf-8') as stream:stream.write(value)
         temporary.chmod(0o600);temporary.replace(secret)
+    if directories:
+        apply_cache_environment()
+        for name,root in storage_roots(workspace_root()).items():
+            if name=='data_dir':continue
+            root.mkdir(parents=True,exist_ok=True)
+            ignore=writable_path(root/'.gitignore')
+            if not ignore.exists():ignore.write_text('# Sonafolio private storage\n*\n')
     return get_settings()
 
 

@@ -12,12 +12,13 @@ class CancelledError(RuntimeError):
     pass
 
 
-def run_stage_process(command: list[str], log: Path, cancelled=lambda: False) -> None:
+def run_stage_process(command: list[str], log: Path, cancelled=lambda: False, *, on_tick=lambda: None) -> None:
     options = {'start_new_session': True} if os.name != 'nt' else {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}
     with log.open('w', encoding='utf-8') as stream:
         process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT, **options)
         try:
             while process.poll() is None:
+                on_tick()
                 if cancelled():
                     raise CancelledError('Task cancelled')
                 time.sleep(0.05)

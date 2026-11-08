@@ -85,7 +85,15 @@ class SettingsParams(Params):
     llm: dict | None = None
     data_dir: str | None = None
     api_key: str | None = None
+    hf_token: str | None = None
 
+
+class ModelParams(Params):
+    model_id: Literal['asr','vad','diarization','alignment']
+
+class StorageParams(Params):
+    directories: dict[str,str]
+    mode: Literal['existing','copy']
 
 class SceneSaveParams(Params):
     scene: dict
@@ -128,6 +136,8 @@ METHODS = {
     'scenes.history':SceneHistoryParams,'scenes.save':SceneSaveParams,'scenes.preview':ScenePreviewParams,'scenes.draft':SceneDraftParams,'scenes.draft.get':DraftGetParams,
     'batches.create':BatchCreateParams,'batches.list':Params,'batches.get':BatchParams,'batches.run':BatchRunParams,'batches.resolve':BatchResolveParams,
     'audio.info':TaskParams,
+    'models.list':Params,'models.download':ModelParams,'models.verify':ModelParams,
+    'storage.plan':StorageParams,'storage.apply':StorageParams,
 }
 
 
@@ -274,6 +284,19 @@ class DesktopServer:
                             job['state'] = 'cancelled'
 
     def dispatch(self, method, params):
+        if method=='models.list':
+            from .model_manager import model_catalog
+            return model_catalog(),None
+        if method in {'models.download','models.verify'}:
+            from .model_manager import download_model,verify_model
+            function=download_model if method=='models.download' else verify_model
+            return self.start_operation(lambda job:function(params.model_id,cancelled=job['cancel'].is_set,on_event=lambda event:self.progress(job,event)),kind='model')
+        if method=='storage.plan':
+            from .storage import plan_storage
+            return plan_storage(params.directories,params.mode),None
+        if method=='storage.apply':
+            from .storage import apply_storage
+            return self.start_operation(lambda job:apply_storage(params.directories,params.mode,cancelled=job['cancel'].is_set,on_event=lambda event:self.progress(job,event)),kind='storage')
         if method=='audio.info':
             from .tasks import managed_input
             task=task_directory(params.task_id);manifest=load_manifest(task)
@@ -427,7 +450,7 @@ class DesktopServer:
         except Exception as error:
             self.diagnostics.write(f'IPC operation failed: {type(error).__name__}\n')
             with self._state_lock:
-                job.update(state='failed',error={'code':'PROCESSING_FAILED','message':'Processing failed; task state and stage logs are retained','error_type':type(error).__name__})
+                job.update(state='failed',error={'code':getattr(error,'code','PROCESSING_FAILED'),'message':'Processing failed; task state and stage logs are retained','error_type':type(error).__name__})
         finally:
             with self._state_lock:
                 final = self.job_view(job)

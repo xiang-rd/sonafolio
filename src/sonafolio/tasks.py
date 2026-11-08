@@ -20,26 +20,8 @@ def now() -> str:
 
 
 def data_root(relative: str | None = None) -> Path:
-    config = writable_path('sonafolio.toml')
-    values = tomllib.loads(config.read_text(encoding='utf-8')) if config.is_file() else {}
-    if relative is None:
-        relative = values.get('storage', {}).get('data_dir', 'data')
-    if not isinstance(relative, str) or not relative.strip():
-        raise ValueError('storage.data_dir must be a workspace-relative directory')
-    relative = relative.strip()
-    path = Path(relative)
-    if path.is_absolute() or '..' in path.parts or not path.parts or ':' in relative or '\\' in relative:
-        raise ValueError('storage.data_dir must remain relative to the workspace')
-    if path.parts[0] in {'.runtime', '.venv', '.models', '.cache', '.git', '.tmp', 'src', 'docs', 'scripts', 'tests', 'skills', 'dist', 'build'}:
-        raise ValueError('Data directory must not overlap models, caches, environment or source')
-    root = writable_path(path)
-    for protected in ('.runtime', '.venv', '.models', '.cache', '.git', '.tmp', 'src', 'docs', 'scripts', 'tests', 'skills', 'dist', 'build'):
-        other = (workspace_root() / protected).resolve()
-        if root == other or root in other.parents or other in root.parents:
-            raise ValueError('Data directory overlaps a protected directory')
-    if root.exists() and not root.is_dir():
-        raise ValueError('Data root must be a directory')
-    return root
+    from .storage_config import storage_roots
+    return storage_roots(workspace_root(), {'data_dir': relative} if relative is not None else None)['data_dir']
 
 
 def ensure_data_root() -> Path:

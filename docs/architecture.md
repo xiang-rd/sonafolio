@@ -1,206 +1,98 @@
-# 架构与模块边界
+# 当前状态与下一步
 
-本文维护设计、模块边界与跨模块契约；完成情况和任务分配只见 [status.md](status.md)。当前为 Python 核心库 + Typer CLI，入口直接调用函数，无需启动 HTTP 服务。
+更新日期：2026-11-08（Asia/Shanghai）。这是项目进度、验证证据和待办的唯一记录入口；架构见 [architecture.md](architecture.md)，协作方式见 [../AGENTS.md](../AGENTS.md)。
 
-## 当前流程
+## 接手快照
 
-```text
-M4A → probe / record_input
-        ├─ transcribe → ASR transcript.json ─┐
-        └─ diarize → speakers.json ─────────┤
-                                           ↓
-                         annotate → 带说话人转写
-                                           ↓
-                         refine → 细化归属转写
-                                           ↓
-                analyze：分块分类 → 选择 Skill → 分块提取 → 全局合并
-                                           ↓
-                  summary.md / summary.json / sources.md + SQLite 索引
-```
+- 产品：声笺 · Sonafolio，Python 包与 CLI 均为 `sonafolio`，版本 `0.1.0`。
+- 阶段：已有可运行的 macOS arm64 桌面开发版，包内 Python 与主界面已连接；尚未达到公开发行或完整跨平台状态。
+- 本地 Git 已建立，首次代码基线为 `b5637c4`；未关联远程仓库。最新提交以 `git log` 为准，不在本文复制滚动提交列表。
+- 当前核心为 Python 3.12 + Typer；后续方向已采纳 Python 核心 + Tauri 2 / Rust 桌面集成 + TypeScript / React 界面。
+- T01 已完成首版：统一 `run/resume`、任务数据布局、阶段恢复与复制迁移；新编排已用合成数据验证。T04 已有版本化本地通信桥接，T03 已构建独立运行包，T05 已接入主流程，T08 场景作者、T09 持久批次和音频播放已完成首版；当前以 macOS 为基准，Windows 实机按用户要求暂缓。离线 wheel / sdist 构建与包内容检查通过，IPC 模块已包含，私有运行目录与业务数据未进入发布包。
 
-ASR 与说话人区分的数据依赖独立，图中的分支不代表已实现自动并行调度。`pipeline.py:run_pipeline` 现已顺序编排这些阶段，也可继续分别调用阶段函数；目前不自动并行执行 ASR 与说话人区分。`refine` 用于改善待确认归属，`analyze` 也接受已完成说话人合并的转写；保留不确定性，不强制把每句话归到某个人。
+## 实现与验证范围
 
-## 模块与现有调用边界
-
-以下路径相对于 `src/sonafolio/`；函数是当前实际接口，尚未抽象为统一后端协议。
-
-| 模块 | 文件与主要入口 | 输入 → 输出 | 主要验证 |
-| --- | --- | --- | --- |
-| 工作区与环境 | `paths.py`；根目录 `scripts/workspace.py`、`scripts/bootstrap.py` | 工作区 → 本地目录、受控子进程环境 | `test_workspace.py` |
-| 音频与 ASR | `audio.py:record_input/decode_audio`、`models.py`、`transcribe.py:transcribe_local`、`_whisper_worker.py` | 音频／模型 → 元信息、PCM、原始转写 | `test_audio.py` |
-| 说话人与对齐 | `diarization.py:diarize_local`、`annotation.py:annotate_recording`、`refinement.py:refine_recording`、`ctc.py` 及相应 worker | 音频／转写／声音区间 → 带归属和不确定性的转写 | `test_diarization.py`、`test_annotation.py`、`test_refinement.py` |
-| LLM 适配 | `llm.py:request_json/load_settings` | 指令／文本／Schema → 校验结果和调用元信息 | `test_llm.py` |
-| 场景 Skill | `skills.py:SkillRegistry/render_summary`、`builtin_skills/` | 清单／Prompt／Schema／模板 → 场景定义与 Markdown | `test_skills.py` |
-| 内容分析与输出 | `analysis.py:analyze_recording` | 带说话人转写 → 分类、提取、汇总、来源页、索引 | `test_skills.py` |
-| 任务存储与编排 | `tasks.py`、`pipeline.py`、`processes.py`、`_pipeline_worker.py`、`migration.py` | 录音 → 受管任务、阶段版本、进度事件、恢复／取消、复制迁移与索引重建 | `test_tasks_pipeline.py` |
-| 场景作者与批次 | `scenes.py`、`_scene_worker.py`、`batches.py` | 声明式编辑／关键词 → 版本／草稿；文件列表 → 持久队列、冻结目录与独立恢复 | `test_scene_authoring.py`、`test_batches.py` |
-| 用户入口 | `cli.py`、`__main__.py` | 参数 → 核心函数 → JSON 结果或错误退出 | CLI 帮助检查及相关模块测试 |
-
-拆分 Agent 时可按表分工。`cli.py`、依赖与锁文件、公共契约文档属于共享修改点；由集成负责人合并，避免多个分支同时调整入口和协议。桌面代码位于 `desktop/`，Rust 宿主只负责进程与系统集成，React 不复制核心业务规则。
-
-## 阶段产物契约
-
-核心函数大多返回含 `output_directory` 的摘要字典，详细数据写入文件。下一阶段读取对应文件，不把返回摘要当成完整转写。路径统一经过工作区校验，输入原始音频只读。
-
-| 产物 | 当前关键字段与语义 |
-| --- | --- |
-| `data/runs/<完整 SHA-256>/manifest.json` | `schema_version=1`、稳定 `task_id`、标题、原音频信息与相对路径、任务状态、配置、各阶段尝试和分析版本；旧 `input.json` 仍可读 |
-| `asr/<范围与设置>/transcript.json` | `schema_version=1`、`source_sha256`、`range`、`segments`；片段含 `id/start/end/text/speaker_id/role`，ASR 阶段说话人为空 |
-| `diarization/<范围与设置>/speakers.json` | 同一音频指纹与范围、`speaker_ids`、允许重叠的 `turns`、单说话人视图 `exclusive_turns`；区间含 `start/end/speaker_id` |
-| `alignment/<归属版本>/transcript.json` | 保留原文和片段 ID，增加候选声音、覆盖量与归属状态；不清楚时 `speaker_id=null` |
-| `alignment/<细化版本>/transcript.json` | 保留原文，拆分片段通过 `source_segment_id` 关联原始片段；混合精度，字符时间为模型估计 |
-| `analysis/<分析版本>/checkpoints/` | `route-*.json`、`notes-*.json`、带预算和版本的合并结果、状态、预览或失败诊断 |
-| `analysis/<分析版本>/` | `summary.json` 含 `metadata/classification/result`；`summary.md` 的引用指向 `sources.md` 的片段锚点 |
-| `data/index.sqlite` | 目前只有 `analyses` 结果索引；不是完整任务队列或统一 Pipeline 状态库 |
-
-时间使用相对于原始录音的秒数，禁止按分块重新归零。声音 ID 仅在同一次录音处理范围内稳定，不表示跨录音身份；业务角色在 LLM 阶段推断。合并前验证来源指纹和范围；声音聚类不能按 LLM 分块重新执行。
-
-转写可为 `completed_with_unresolved_segments`，表示计算完成但仍有归属不确定性。`status.json` 的 `completed` 仅表示阶段执行成功，不证明识别准确。现有产物有基础版本字段，但并非所有字段都有独立 Schema；变更字段、目录层级或状态语义时，要同步所有生产者、消费者、缓存版本及兼容策略。
-
-## 任务数据布局
-
-2026-11-08 确认并实现：新录音导入时将原始音频复制到任务内，取消顶层 `input/`、`output/` 的新写入。run 是长期稳定的录音任务，不是每次命令调用；任务 ID 为完整音频 SHA-256，相同内容再次导入返回同一任务。旧目录继续保留、可读，通过独立命令复制迁移。
-
-```text
-data/
-  batches/
-    <批次 UUID>/
-      batch.json             队列、各项状态及任务引用
-      catalog.json           导入时冻结的完整场景目录
-  runs/
-    <任务 ID>/
-      input/                 原始录音
-      manifest.json          任务身份、文件信息、状态、配置与版本
-      catalogs/              自足的目录／Prompt 快照
-      asr/                   转写及阶段版本
-      diarization/           说话人区间及阶段版本
-      alignment/             合并、对齐与归属结果及阶段版本
-      analysis/
-        <分析版本>/
-          catalog.json       分析开始时的场景目录快照
-          scene.json         本次使用的场景快照
-          checkpoints/       分类、分块提取、合并与恢复记录
-          summary.json
-          summary.md
-          sources.md
-  index.sqlite               跨任务查询与列表索引
-```
-
-- 任务 ID 独立于显示标题和原文件名；录音指纹用于完整性与复用校验，重命名不改变任务身份或引用。
-- 每个任务目录包含其处理所需的录音、阶段产物和分析版本，不依赖另一个任务目录；模型、下载缓存、密钥和全局场景定义仍独立管理。分析所用场景保存快照，不以最新场景覆盖历史。
-- 修改 Prompt、场景或模型后，按依赖与参数生成新的阶段／分析版本；可复用的转写与说话人结果保留，历史结果不隐式覆盖。manifest 的 `stages` 按阶段保存尝试列表，每项包含签名、状态、相对目录、输入／设置指纹和完成产物的 SHA-256。签名不匹配或产物丢失／损坏时不复用；`--force` 新建尝试，保留历史。
-- 批量导入创建多个独立任务，通过 manifest 的 `batch_ids` 关联，批次状态单独保存在 `data/batches/<UUID>/batch.json`。批次不拥有唯一的原始录音副本。按场景组织主要通过索引和筛选实现，不再把唯一结果分散到顶层类目目录。
-- SQLite 保存跨任务索引，任务文件是索引重建的依据；完整任务目录应可独立备份和导出。`rebuild-index` 校验受管音频、总结、转写与来源引用后，以事务重建受管分析行，保留旧版索引行；SQLite 仍只有 `analyses` 表，任务状态以 manifest 为准。
-- `migrate-run` 默认预览，`--apply` 复制旧 `annotated/`、`refined/` 到 `alignment/`，汇集旧总结与检查点，更新 JSON 路径并校验来源链接和索引。失败撤回本次发布的派生目录，原录音与旧结果始终保留；可能已导入的受管录音也保留。旧数据没有历史 Skill 全文时，`scene.json` 明确记录 `legacy_snapshot_unavailable`，不拿当前规则冒充历史。迁移产物用于查看和留档，尚不自动转换为新 Pipeline 的可复用尝试。
-- `data/validation/` 现有私有验证记录不是生产任务目录的一部分，本方案不移动或删除这些记录。
-
-## 缓存与恢复边界
-
-- 通过 `run` 执行时，按阶段输入内容、模型文件／revision 清单、后端版本与设置判断复用，并核对产物哈希；单阶段命令仍不自动跳过音频推理。模型目录的 revision 清单应与权重一起管理，不能修改权重后保留旧清单。
-- LLM 分类、提取和合并已有文件检查点，重跑会校验并复用；`--force` 重新调用模型。
-- 当前分析指纹包含整个转写、全部 Skill 定义及 LLM 设置；只改模板也可能使分析检查点失效。尚未实现独立的“仅重渲染”命令。
-- 最终合并预算和 `MERGE_VERSION` 单独区分结果，调整它们可以复用分类和提取检查点。详见 [Skill 协议](skills.md)。
-- 统一任务状态为 `imported/running/completed/preview_only/needs_review/failed/cancelled`，阶段尝试为 `running/completed/needs_review/failed/cancelled`。同任务通过 OS 文件锁拒绝并行写入；锁随进程退出释放，残留锁文件不代表仍在运行。硬中断可能留下 running 尝试，下次可重算，分析会续用已校验的分块检查点。
-- Pipeline 每阶段在独立 Python 进程中执行，取消令牌或 Ctrl+C 会清理推理进程组；Windows 使用进程树终止，尚待实机验收。桌面服务一次只处理一个批次／任务／起草操作，批次内部串行执行，避免本地模型与 LLM 过量并发；多个独立 CLI 进程仍不共享全局调度锁。
-
-`run_pipeline(audio, options=RunOptions(...), cancelled=..., on_event=...)` 是核心入口；`resume_pipeline(task_id)` 沿用保存的参数。事件包含 `task_id/stage/state`，CLI 将事件写 stderr、最终 JSON 写 stdout；当前是阶段粒度，原生模型详细进度仍在各阶段本地文件。桌面使用下述版本化 IPC 封装这些事件。
-
-默认 `analysis=preview`，完成本地识别／说话人与可选细化后生成发送计划；`none` 止于转写，`cloud` 显式发送转写给 DeepSeek。失败的分析继续使用自己的未完成版本，成功历史保持独立；只改合并预算时可复制匹配签名的分类／提取检查点，新预算仍生成独立结果。
-
-## 已采纳的技术方向
-
-当前模型组合为 whisper.cpp / pywhispercpp + Silero VAD、pyannote community-1、中文 Wav2Vec2 CTC，以及 DeepSeek JSON 输出。模型来源和 revision 记录在工作区 `.models/` 的清单内；模型下载与推理显式分离。其他供应商、本地 LLM 和云端 ASR 仍待接入。
-
-当前保留 Python 处理核心，桌面采用 **Tauri 2 + TypeScript / React + Python 独立处理进程**。Rust 负责桌面生命周期和系统集成，不重写现有模型管线。CLI 与桌面复用同一核心；暂不为桌面强制引入 HTTP 服务。
-
-桌面集成与当前实现：
-
-1. 已有 `sonafolio run <audio>`；后续桌面复用核心编排，仍保留单阶段命令。
-2. 已有 `sonafolio ipc` 标准输入／输出 JSON Lines 桥接，协议版本为 1；Rust 宿主与 React 消费端已接入。
-3. `desktop/src-tauri/src/main.rs` 从 `.app/Contents/Resources/runtime` 启动内置 Python。`scripts/build_macos_runtime.py` 由受管 CPython 和 `uv.lock` 全部 extras 构建独立运行包，模型权重另存工作区；当前为 macOS arm64 开发版，Windows 实机暂缓。
-4. 用户显式选择可写工作区，模型、推理缓存、配置、密钥、结果及日志写入该目录；Python 和依赖随应用只读分发，不在用户机器全局安装。WebView 使用 incognito，外观配置存工作区 TOML，启动不读取其他浏览器配置。
-
-新编排模块需调用现有核心，不在 CLI、Rust 或前端复制业务规则。正式打包必须验证 Python/native 依赖、GPU 与 CPU 路径、路径迁移、签名和安装体验；Tauri 的平台支持不代表模型依赖已在对应平台验收。
-
-## 本地桌面协议 v1
-
-`ipc.py:DesktopServer` 复用 Pipeline 和任务存储；`sonafolio ipc` 作为受信任本地宿主的子进程运行，通过 UTF-8 JSON Lines 通信，不监听网络端口。所有输出帧包含 `protocol_version=1`、单调递增的 `seq` 和 `type`。输入／输出及各方法参数 Schema 可通过 `sonafolio ipc --schema` 导出；参数拒绝未知字段及隐式字符串／布尔转换。`RunOptions` 的默认值和类型由核心派生。
-
-请求示例：
-
-```json
-{"protocol_version":1,"id":"req-1","method":"hello","params":{}}
-```
-
-成功响应为 `type=response,id,ok=true,result`；错误响应为 `type=response,id,ok=false,error={code,message}`。无法解析请求时 `id=null`。事件为 `type=event,event,data`，任务事件另含 `operation_id`。首次输出 `server.ready`，随后通过 `task.progress` 传递阶段状态，以 `operation.finished` 结束一次操作；异步请求的接受响应先于该操作的任何事件。
-
-| 方法 | 参数与结果 |
-| --- | --- |
-| `hello` | 返回版本、平台、方法、限额和默认分析模式 |
-| `tasks.list` | `offset/limit`；返回任务摘要、总数和不可读记录数，不读取全部转写；损坏记录不阻断正常列表 |
-| `tasks.get` | `task_id`；返回标题、状态、阶段摘要、音频基本信息、分析版本及最新结果相对目录 |
-| `tasks.run` | `audio/options/force`；默认 preview，显式 cloud 才请求 LLM；返回排队状态和 `operation_id` |
-| `tasks.resume` | `task_id`，可选 `analysis`；省略时沿用任务保存的分析模式 |
-| `operations.get` | `operation_id`；查询本次服务会话中的状态、结果或稳定错误 |
-| `operations.cancel` | `operation_id`；设置取消令牌，等待 `operation.finished` 确认终态；取消请求可能与正常完成交错 |
-| `tasks.rename` | `task_id/title`；更新显示标题，沿用核心任务锁 |
-| `settings.get/save` | 查询工作区配置；保存 LLM、写入式 Key、数据目录和外观，处理期间拒绝修改；返回是否已配置，不返回密钥 |
-| `scenes.list` | 返回全部场景（含停用项）、解析后的 Prompt／Schema／模板及 AI 草稿摘要 |
-| `scenes.save/preview/history` | `scene/expected_version` 乐观版本保存、示例渲染与不可变版本记录 |
-| `scenes.draft/draft.get` | 关键词启动异步起草；草稿 ID 读取，确认前不路由 |
-| `batches.create/list/get` | 文件列表／RunOptions 创建异步批次并开始处理，磁盘状态跨会话恢复；列表／详情省略外部源路径 |
-| `batches.run/resolve` | 按批次或指定 item 恢复；可显式指定分析模式，人工确认冻结目录内的场景 |
-| `audio.info` | `task_id` → 校验过的受管输入路径与时长；Rust 再校验 manifest 并仅授权这一音频文件 |
-| `artifacts.read` | `task_id/path/offset/limit`；仅允许任务内 JSON / Markdown，相对路径不得越界或指向原音频；返回 base64 字节块、下一偏移和 EOF |
-
-异步操作状态为 `queued/running/cancelling/completed/preview_only/needs_review/paused/completed_with_errors/failed/cancelled`，`operation_id` 区分同任务的不同调用，稳定 `task_id` 仍是录音指纹。服务一次只接受一个处理操作，忙时返回 `BUSY`；控制请求继续响应。保留最近 128 个操作和 2048 个请求 ID；保留窗口内重复请求 ID 返回 `DUPLICATE_REQUEST`，不再次执行。跨会话任务和批次状态分别通过任务 manifest 与批次 manifest 恢复，操作 ID 本身不跨会话保存。
-
-输入一行最多 1 MiB，超长行被完整丢弃后可继续处理后续请求。`artifacts.read` 每块最多 128 KiB，按字节偏移；客户端应拼接字节或使用流式 UTF-8 解码，避免中文跨块截断。文件内容不自动出现在任务列表和进度中。越界、格式或参数错误不回显请求原文；处理失败仅暴露稳定错误码与异常类型，具体诊断留在本地阶段日志。
-
-宿主必须持续读取 stdout 并保持 stdin 开放；EOF、SIGINT 或 SIGTERM 会请求取消并等待当前处理退出，沿用 Pipeline 的子进程树清理。Python 打印重定向至 stderr，原生推理日志留在阶段文件，stdout 保持协议帧。同步导入、指纹计算等本地 I/O 在返回后观察取消令牌。此接口仅供本地受信任宿主，未提供网络鉴权或远程服务。
-
-本轮以模拟宿主验证 Schema、消息关联／顺序、异常恢复、忙碌／取消和字节分块，并在 macOS 真实子进程验证 EOF／SIGTERM 退出与日志分流；本轮还以真实 Tauri / React 窗口验证了工作区连接、总结／转写读取、重命名与配置保存；独立运行包另有原生库、模型短样本与搬迁验证。完整跨平台和公开发行验收仍待完成。
-
-## macOS 运行包与真实界面
-
-`desktop/src/bridge.ts` 将 Tauri command 封装为协议调用，先订阅事件再连接；Rust 读线程关联请求／响应并转发事件。每次工作区连接带独立 connection ID，旧连接的退出事件不会覆盖新会话；React 缓冲早于接受 Promise 返回的进度／终态，避免快速任务产生悬挂状态。Rust 宿主关闭 stdin、等待退出，必要时发送 SIGTERM；工作区 `.runtime/logs/desktop-backend.log` 保存后端诊断，界面不显示凭据或异常正文。
-
-React 当前接入录音列表／状态筛选、原生文件选择、持久化串行多文件导入、任务取消与恢复、显示标题修改、总结／转写／发送预览、引用核对、Finder 定位、场景编辑／版本／预览及关键词 AI 起草、DeepSeek 配置与工作区数据目录。后端配置由 `desktop_settings.py` 保留其他 TOML 表，Key 单独保存为 0600 文件；文件存在检测用于展示本地模型准备状态。目录修改不自动迁移数据，固定模型／缓存目录尚未提供编辑；角色校正、模型下载 UI 和目录编辑仍属后续工作。原音频使用 Tauri asset protocol，动态授权单文件并支持 Range 读取，避免把长音频整体塞入 JSON 或浏览器 Blob；React 提供播放／暂停、进度、倍速和逐字稿／引用时间定位。
-
-运行包包含受管 CPython 3.12、锁定的全部处理依赖、应用 wheel、启动器和版本／锁文件清单。包内 TorchCodec 固定使用 PyAV 已携带的 FFmpeg 8 ABI，改写 Mach-O 依赖后本地重签名，避免从 Homebrew 借库。运行验证通过 dyld 已加载库检查和合成音频解码，而非仅凭 import 判定。构建不打包模型权重、数据目录、密钥或开发虚拟环境；源码 sdist 包含 desktop 源码与两个前端／Rust 锁文件，排除 node_modules、产物和生成 Schema。
-
-本机已验证中文与空格路径搬迁、受限 PATH 下独立启动、包内真实 ASR／pyannote／一个片段的 CTC 推理及本地 IPC。当前 .app 为开发构建，目标 macOS 14+ / arm64；只在当前开发机实测，不代表所有 macOS 14 设备或 Intel Mac 已验收。Developer ID 签名、公证、公开分发许可检查、长录音包内回归、Metal 加速与冷启动安装体验仍需后续验收。
-
-## 设计约束与资料
-
-### AI 原生的整理场景与三类模型任务
-
-用户确认将行业背景、场景类目、Prompt 和输出模板合并为一个“整理场景”。用户通过关键词表达整理意图，AI 起草规则；录音默认自动匹配场景，再执行内容整理。人工主要负责启用规则、处理歧义和核对来源，不要求导入时逐项选分类。
-
-| AI 任务 | 输入 → 输出 | 当前实现边界 |
+| 能力 | 当前状态 | 证据与限制 |
 | --- | --- | --- |
-| 场景草稿生成 | 关键词／整理意图 → 场景名称、适用与排除条件、Prompt、输出结构／模板草稿 | `scenes.py` 已实现异步可取消起草、结构／渲染验证与草稿持久化；输出 Schema 复用基础场景，人工启用 |
-| 录音场景匹配 | 每条完整转写的分块、已启用场景的路由说明 → 场景 ID、依据与待确认状态 | 已有分块分类与层级投票；路由包含关键词／适用／排除条件，批次 unknown 保留待确认 |
-| 内容总结 | 带说话人的转写、所选场景版本 → 分块提取、全局总结、来源引用 | 当前 `analysis.py` 已实现单录音提取与合并；保留现有证据校验 |
+| 工作区环境与依赖锁定 | 已实现 | Python、uv、依赖、模型与缓存均定位到项目；是应用目录约定，不是 OS 沙箱 |
+| 中文 ASR / VAD | 已实现并运行真实样本 | whisper.cpp large-v3-turbo Q5 + Silero VAD，Mac Metal；人名和术语仍可能误识 |
+| 多说话人与保守归属 | 已实现 | 整段 pyannote 聚类；测试覆盖三人和重叠；真实样本仅得到两个声音簇，未系统人工验证 |
+| 中文 CTC 归属细化 | 已实现并运行真实样本 | 保留原文和来源 ID；仍有未可靠归属文字，不能视作人工精确标注 |
+| LLM 与场景整理 | 已实现 | 仅 DeepSeek；自动分类或指定 Skill、Prompt 覆盖、分块检查点、全局汇总与来源校验 |
+| 场景包 | 已实现协议与模板 | 面试、技术面试、HR 面试、问诊、快递、未知；通用基础包不参与路由。真实效果仅验证过技术面试样本 |
+| 输出与索引 | 已实现 | 每任务聚合的 Markdown / JSON / 来源页／场景快照与 SQLite `analyses` 索引；旧目录保留，可复制迁移 |
+| 单录音统一编排与取消 | 已实现首版 | `run/resume`、阶段进度事件、哈希校验复用、失败恢复、进程树取消与 OS 文件锁；细粒度进度和跨任务并发控制尚未统一 |
+| Mac / Windows 发行 | 未完成 | 当前仅 Apple Silicon macOS 实测；当前以 Apple Silicon macOS 为基准；Windows 实机暂缓，Intel Mac 和 CUDA 未验收 |
+| 桌面通信桥接 | 已接入真实桌面 | `ipc` 协议 v1，新增配置、场景作者／草稿、持久批次与音频信息接口；Tauri 管理包内 Python，React 消费响应和事件 |
+| macOS 运行包与界面 | 已有开发版 | `.app` 包含 Python／依赖；已连接录音、任务、结果、配置主流程，已接入场景编辑／关键词起草、持久批次与本地播放器 |
+| HTTP API、其他后端 | 未实现 | 当前桌面不依赖 HTTP；其他服务商和本地 LLM 留待后续 |
+| 桌面 UX / UI 原型 | 布局已确认，功能未接入 | [离线交互稿](desktop-prototype.html)；统一整理场景、关键词生成草稿、批量匹配／歧义确认，全部预设演示，不连接核心或真实 API |
 
-三者是任务目的，不是固定三次 API 请求；共用凭据与供应商适配入口，分别记录输入版本、模型、用量、错误和重试。缓存按任务目的隔离，避免“改规则”与“执行规则”互相污染。后续可按任务目的选择模型，但第一版可以共用一个默认模型配置。
+## 验证基线
 
-产品中的“整理场景”映射为现有声明式 Skill 包：稳定 ID / 版本 / 启用状态、Prompt、JSON Schema 与 Markdown 模板。行业语境进入场景说明与 Prompt，不新增独立行业分类表。关键词用于作者表达意图；触发／排除条件进入路由说明，不能用字符串命中代替语义判断。v1 保持兼容，桌面作者使用完整解析的 v2 定义，协议和版本语义见 [skills.md](skills.md)。
+以下为 2026-11-07 当前开发机的已执行记录，不是性能承诺或准确率评估：
 
-AI 生成的 Schema 与模板须通过结构、继承、路径、沙箱渲染及示例校验；只生成声明式资源，不执行生成的代码。匹配只能返回本次提供的可用场景 ID；有歧义或无匹配时保留转写和候选依据，不自动创建场景或默默套用任意模板。
+- 约 72 分 47 秒中文 M4A，原始音频 SHA-256 前后校验一致。
+- ASR 推理约 274.8 秒，生成 2,565 个片段；整段说话人区分约 309.0 秒，估计 2 个声音簇。
+- 初步合并有 464 个原始片段需进一步对齐；中文 CTC 阶段约 39.1 秒，保留全部文字，仍有 2,102 个字符未可靠归属。
+- DeepSeek 完成 11 个分块的分类、提取与合并，类目为 `interview.technical`，完成结构、来源编号和来源链接检查。
+- 自动化测试基线：44 项通过。锁文件离线检查、CLI、原生 ASR / Torch / Transformers 导入、wheel / sdist 构建均通过；两个发布包各含 7 个内置 Skill，未包含私有运行目录。
+- 系统人工准确率评估、多人真实样本、其他场景效果和 Windows 实机验证尚未完成。
+- 桌面原型已在本机 Chromium 检查 1600×1000、1280×800 与 390×844 布局、主要管理流程、模拟失败／取消／恢复、示例导出、键盘 Tab / Shift+Tab / Enter / Space / Escape / 方向键、焦点恢复和减少动态效果偏好；抽查的明暗主题文字表面对比度均达到 4.5:1，无浏览器脚本异常。这是 HTML 原型验证，不是完整无障碍认证或原生 Mac / Windows 桌面验收。
+- v2 补充验证：统一场景、关键词草稿生成／失败重试／取消、草稿启用门槛、批量不同场景与歧义确认、未知内容不按文件名推断、独立失败与取消恢复、场景版本快照、停用规则编辑、本地 AI 与仅本地转写、设置及重命名回归，明暗与窄屏布局、弹窗键盘焦点和保存按钮可见性通过，无脚本异常。均使用预设数据，没有真实 LLM 调用；44 项核心单测基线沿用前次记录，本轮未重跑模型或核心全量测试。
 
-批处理按录音指纹独立建任务；ASR / 说话人完成后再据内容匹配，不从文件名推断。每条任务冻结场景目录和选中版本快照，编辑仅影响新任务或显式重跑。失败、取消与待确认局限于当前任务，其他录音继续；人工确认后从内容整理阶段续跑。当前桌面批次按一条串行处理；原型的两条并发只是交互演示。批次先复制可用录音再推理，失败／取消后已导入项不依赖外部源路径；导入尚未完成的项仍需保留源文件。批次锁防止同时恢复，队列状态逐项原子写入；硬退出遗留 running 项可重试。
+当前迁移前布局：真实样本、结果及机器验证细节只在本地 `data/`：`validation/` 保存基线记录，`runs/` 保存阶段产物，`output/` 保存各合并版本。新克隆不包含这些私有文件，也不应将原始文件名、个人内容、密钥或绝对机器路径补进公共文档。多个结果版本共存时，按具体设置和合并版本选择，不按目录排序猜测“最新”。
 
-### 桌面交互原型（布局已确认）
+## 待办与依赖
 
-[desktop-prototype.html](desktop-prototype.html) 是单文件离线交互稿，可直接在浏览器打开。v2 保留录音库、复盘与引用核对、模型 / API Key、工作区 / 录音与结果 / 模型 / 缓存目录和重命名；将原有行业／类目／Prompt 管理合为整理场景，新增“关键词 → AI 草稿 → 编辑启用”及“批量导入 → 自动匹配 → 歧义确认 → 继续整理”的可点击流程。2026-11-08 用户确认当前布局，后续按此实现；真实实现位于 `desktop/`，保留此文件作设计参考。
+状态采用“待开始 / 进行中 / 待集成 / 完成 / 阻塞”。认领时填当前负责人；完成时记录验证结果和遗留问题。以下是任务边界，不表示已经启动其他 Agent。
 
-使用 `html-prototype` 与 `design-artifact` 技能制作；基于 MacWhisper、Granola、Notta 的官方公开资料提炼操作方式，引用和设计理由嵌在原型的“设计说明”中。未登录这些产品做完整实操验收。
+| ID | 状态 / 负责人 | 范围、依赖与完成条件 |
+| --- | --- | --- |
+| T01 | 完成 / Codex | **统一 Pipeline 与任务数据布局首版**。`run/resume` 串联现有阶段，受管录音副本、稳定任务 ID、manifest 状态／尝试历史、阶段内容与参数校验复用、失败续跑、Ctrl+C／取消令牌及子进程树清理；默认本地预览，显式 cloud 才调用 LLM。支持标题重命名、数据根目录配置、旧布局复制迁移和索引重建。通过合成数据及真实阶段子进程测试；Windows 原生行为由 T02 验收 |
+| T02 | 进行中 / Codex（macOS）；Windows 实机暂缓 | **平台验证**。按用户最新要求，当前以 Apple Silicon macOS 为基准，已覆盖本地进程组取消、IPC EOF／SIGTERM、日志分流和契约测试。继续推进 Mac 运行包及真实桌面验收；Windows 实机不作为本轮前置，恢复后单独验收，不以 Mac 测试代替 |
+| T03 | 完成 / Codex（macOS arm64 开发版） | **独立运行包首版**。CPython + uv.lock 全 extras + wheel + 受控启动器，FFmpeg 使用包内 PyAV 库，搬迁和受限 PATH 验证通过；已完成包内真实 ASR／说话人／单片段 CTC。Developer ID 签名、公证、冷启动安装及长录音性能仍待发行验收，不代表 Windows / Intel 通过 |
+| T04 | 完成 / Codex（首版） | **桌面通信协议**。`ipc` JSON Lines v1、Schema 导出、请求关联与顺序、异步 run/resume、控制／取消、任务列表与详情、重命名、受限分块读取、稳定错误码；stdout 协议与诊断分流，EOF／SIGTERM 取消退出。模拟客户端契约与 macOS 子进程验证通过；真实 Tauri / React 端在 T05 接入 |
+| T05 | 进行中 / Codex | **Tauri / React 桌面**。已构建 `.app`，复用确认布局，接入工作区选择、文件导入、任务控制与持久批次、结果／引用、重命名、DeepSeek Key／模型、数据目录与外观。真实原生窗口已联调。已集成 T08／T09、原始录音播放器及逐字稿／引用跳转。本轮进行中：模型下载／模型缓存目录设置与复制迁移已接入核心，正在开发桌面入口和 macOS 完整验收；角色校正仍属后续扩展 |
+| T06 | 待开始 / 未分配 | **开源与效果评估**。可并行准备脱敏样例、人工标注规则、英文说明、模型与依赖来源清单；代码许可证尚待选定。发布前完成许可证、安装说明和样例自检 |
+| T07 | 待开始 / 未分配 | **后端与编辑扩展**。后续增加本地 LLM、其他云端后端、角色修正和仅重渲染；先定义接口及缓存失效语义，避免破坏现有阶段产物 |
+| T08 | 完成 / Codex（首版） | **整理场景编辑与 AI 起草**。兼容 v1，新增 v2 完整定义、关键词／适用／排除条件、乐观版本保存、不可变历史与预览；DeepSeek 关键词起草可取消、持久保存、人工确认启用。测试非法结构／模板、冲突、失败／取消、禁用隔离、Schema 示例恢复；真实付费起草未调用 |
+| T09 | 完成 / Codex（首版） | **持久批次与独立恢复**。磁盘队列关联稳定任务、冻结场景目录／模型设置、串行调度、先导入再推理、重复跳过、暂停／重试、unknown 人工确认、指定单项继续及预览转总结。mock 验证失败隔离、重启读取、规则编辑隔离与确认续跑；实际多条长录音效果未验收 |
 
-所有生成、匹配、总结与进度均为标明的预设演示；配置仅存内存，刷新清空，不调用 API 或模型，不改本地文件。任意本地文件只读取名称，无转写内容时保留未匹配，不假装已理解录音。场景生成、批次调度、目录切换、场景版本管理和原文件重命名尚未接入核心；正式实现需补持久化、凭据边界、路径迁移、冲突处理及缓存失效策略。不能直接把此 HTML 当作真实桌面前端，实际接入范围见上方 macOS 章节。
+## 最近交接
 
-### 核心约束
+AI 原生方向已确认：统一整理场景，关键词生成规则、批量内容匹配与总结构成三类 AI 任务。离线设计稿继续保留，真实桌面主流程已连接核心；场景作者及持久批次见 T08、T09，手写 Skill v1 保持兼容，桌面作者使用 v2，不把预设示例当作真实模型输出。
 
-原始声音区间、转写和来源引用均保留；不可靠归属不强行指派；不将 ASR 误识当作候选人能力缺陷；Schema 与编号合法不等于事实准确。工作区边界见 [workspace.md](workspace.md)，产品验收见 [requirements.md](requirements.md)。
+2026-11-08 用户确认当前布局。录音库使用紧凑列表和场景／待核对筛选；场景版本为只读快照，关闭返回原上下文；批次页采用左列表、右任务区，支持从录音返回批次。场景管理与设置共用左右分栏、顶部标题操作栏，600–720px 保留竖向列表，更窄屏幕收为可展开竖向菜单；窄屏主导航单行、双字标签。待核对集中在录音筛选，外观放入设置。既有主要流程、键盘与明暗主题验证见上方基线。
 
-官方参考：[whisper.cpp](https://github.com/ggml-org/whisper.cpp)、[pyannote community-1](https://huggingface.co/pyannote/speaker-diarization-community-1)、[中文对齐模型](https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn)、[DeepSeek](https://api-docs.deepseek.com/)、[Tauri sidecar](https://v2.tauri.app/develop/sidecar/)。实际依赖版本以 `uv.lock` 为准，外部兼容性以目标平台实测为准。
+T01 本轮实现并验证：新增 tasks / pipeline / processes / migration 及阶段 worker，CLI 增加 `run`、`resume`、`rename-task`、`rebuild-index`、`migrate-run`。新数据用完整 SHA-256 作稳定任务 ID；原音频副本、阶段结果、分析版本和场景快照在同一任务内，默认 `data`，CLI 可通过 `[storage].data_dir` 改为工作区内专用目录。自定义目录写入私有数据忽略规则。HTML 原型的路径设置仍只在页面内存；真实桌面的数据目录现已接通 TOML。
+
+验证：60 项单测通过，包括合成音频导入／标题重命名、输入保护、配置路径与符号链接、产物损坏和模型变化失效、成功复用、失败恢复、未完成分析检查点续用、损坏且结构合法的检查点重算、强制重算保留历史、任务互斥、取消原生子进程树、真实阶段子进程的归属／发送预览、迁移引用校验与索引失败回滚、索引重建拒绝坏引用。离线 wheel / sdist 构建通过，五个新模块均已包含，发布包检查未发现私有数据、运行目录或密钥目录。全部使用合成／模拟数据；没有执行真实长录音、下载模型、付费 API 或移动开发机真实数据。原 44 项真实样本与构建基线仍为历史记录，不代表新编排已完成真实模型或 Windows 验收。
+
+迁移限制：旧输入和结果不自动迁移；`migrate-run` 默认预览，`--apply` 才复制，失败撤回本次发布的派生目录并保留旧文件。缺少历史 Skill 全文时明确标记快照缺失；迁移版本用于留档，不自动转换成新 Pipeline 可复用的阶段缓存。SQLite 仍是分析索引，任务状态以 manifest 为准。批次调度已在 T09 接入；跨数据根目录搬迁与任务包导入／导出仍留待后续。
+
+T04 本轮交接：新增 `ipc.py` 与 CLI `ipc [--schema]`，协议集中记录在 architecture，不新增独立协议文档。核心复用现有 Pipeline，默认 preview；resume 继续沿用保存的分析模式。当前单操作执行，控制通道可同时查询／取消，结果读取限制在任务内 JSON / Markdown。本轮已新增 `settings.get/save` 与 `scenes.list`，真实桌面通过这些接口保存配置，HTML 原型保持离线演示。
+
+验证：67 项测试通过（原 60 项及 7 项协议测试），包括模拟桌面侧 Schema 校验、消息顺序／关联、请求去重、异步取消、忙碌、错误不回显、中文跨字节分块与路径隔离；真实 macOS 子进程验证超长行恢复、EOF／SIGTERM 清理及 stdout 日志分流。使用合成／模拟数据，没有调用真实模型或付费服务；Windows 实机按用户要求暂缓。离线 wheel / sdist 构建与包内容检查通过，IPC 模块已包含，私有运行目录与业务数据未进入发布包。
+
+T03 / T05 本轮交接：源码在 `desktop/`（Tauri 2 / Rust + React / TypeScript），新 `desktop_settings.py` 维护工作区配置并只写不回显 Key。构建工具链与 npm／Cargo 缓存全部在项目内。`build_macos_runtime.py` 全量构建或 `--refresh-code` 更新应用代码，`runtime_launch.py` 先设置工作区环境再启动 IPC／CLI，独立运行不依赖系统 Python 或开发 `.venv`。原生 WebView 使用 incognito，不通过浏览器持久化工作区或密钥。首轮本地可运行应用输出 `dist/macos/Sonafolio.app`，约 1.12 GiB，不包含模型权重、私有数据或凭据。
+
+本轮证据：71 项 Python 测试通过；1 项 Node 客户端测试使用包内 Python、受限 PATH 完成真实协议往返；TypeScript / Vite 与 Rust 编译、Tauri `.app` 打包通过。浏览器合成后端检查结果读取、重命名、Key 不回显、设置、导入／取消及窄屏，无脚本异常；真实 macOS 窗口检查工作区连接、总结／转写、标题修改、配置保存和数据路径。独立运行包移到中文与空格路径后仍通过检查，未加载 Homebrew / usr-local 库；包内 TorchCodec 合成音频解码成功；用已有模型与短合成语音完成 CPU ASR（1 片段）、说话人区分（1 声音簇）、归属，并对一个人工标记待对齐的合成片段执行真实 CTC（输出 6 个细分片段）；默认 ASR auto 模式也通过同一短样本验证。未处理真实长录音、未下载模型、未调用云端 API；新增依赖仅进入工作区缓存。此证据不代表多人准确率、Metal 性能、所有 macOS 14 设备或公开发行已验收。
+
+T08／T09 与音频播放最新交接：`scenes.py`／`_scene_worker.py` 管理声明式编辑、版本、验证与可取消起草；`batches.py` 管理 `data/batches/<UUID>/batch.json`、冻结目录与串行恢复。任务内增加 `catalogs/` 自足快照，manifest 保留批次关联与 `needs_review`；每条原音频和全部阶段产物仍在各自 run 内，批次不重复拥有音频。IPC 新增场景作者、批次和 `audio.info`；Rust 单文件授权 asset protocol，前端分为 SceneManager／BatchManager／AudioPlayer。新批次暂停不删除队列，已完成／重复项跳过，错误项独立重试；确认 unknown 后复用转写，仅继续内容整理。修改场景不改变已有批次。
+
+本轮验证：85 项 Python 测试通过（包括 Pipeline 待确认终态、指定单项 cloud、持久队列、场景保存冲突、模板／Schema 校验与示例往返、起草失败／取消）；1 项 Rust 文件授权测试通过；Node 客户端以包内 Python、受限 PATH 验证新增编辑／版本／预览／批次／音频接口；TypeScript／Vite、Rust 编译和 `.app` 打包通过。浏览器以真实包内 Python 验证场景连续保存、版本递增、预览、批次导航恢复、缺模型失败隔离；合成 M4A 验证播放／暂停、逐字稿时间跳转，1403px 与 669px 布局无横向溢出、无脚本异常。实际 macOS WKWebView 已通过 asset protocol 播放同一合成 M4A，逐字稿点击后滑块到 2 秒；原生窗口场景版本保存、跨进程读取持久批次通过。
+
+验证边界：AI 起草及批次成功／歧义内容流程使用模拟 LLM，未调用付费 API；没有重跑真实长录音、下载模型、改动已有私有数据，也不代表多人准确率／所有编码／长录音性能已验收。当前仍无模型下载 UI 或模型／缓存目录编辑，模型与缓存固定在工作区 `.models/`、`.cache/`；配置数据目录不会迁移历史文件。旧数据显式迁移后才进入受管列表。Windows 实机继续暂缓。
+
+发行方向：用户已确认 GitHub 源码 + GitHub Releases。当前未关联远程、未发布，运行包仍为本地开发版；许可证、Developer ID 签名／公证、冷启动安装及公开发行检查按 T03／T06 继续。
+
+模型管理迭代（进行中）：统一存储路径契约供启动器和核心共享；新增模型目录、缓存目录配置，复制校验后切换配置并保留源目录；下载固定 revision、分段续传和校验后安装，替换时保留旧模型。93 项合成／mock 测试已通过；桌面入口及完整验收尚在推进，本记录不代表下载 UI 或长录音验收完成。
+
+## 模型管理与存储切换（本轮接入）
+
+`storage_config.py` 是标准库路径契约，启动器复制同一文件到包内，模型与缓存不再写死；`paths.model_path` 将约定的 `.models/...` 映射到当前配置。data／models／cache 必须是工作区内互不重叠的目录，且不能占用源码、环境、凭据或场景位置。
+
+`storage.plan/apply` 预览并执行 existing／copy。copy 逐文件复制与 SHA-256 校验，完成后切换 TOML，失败／取消保留源文件并撤回本次新副本；已有非空目标拒绝合并。原目录不删除。硬退出可能留下未启用的完整副本或临时目录，原配置与原数据保留。启动器和设置更新都会调整模型运行缓存环境，网络／模型库在独立 worker 中加载。
+
+`models.list/download/verify` 提供四个内置模型组件。下载先查询固定 revision 与校验值，分段临时文件写到缓存，支持 Range 重试；通过校验后发布到模型目录，旧安装保留在 `.history/`，发布日志支持重试恢复。网络 worker 不打印原始 HTTP 异常或令牌。设置新增写入式 `hf_token`，保存到工作区 0600 凭据文件，IPC 只返回配置状态。桌面服务串行运行下载、迁移、起草及录音操作；核心模型操作与迁移还共用工作区存储锁，避免处理中搬迁。
