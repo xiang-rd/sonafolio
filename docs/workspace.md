@@ -121,6 +121,20 @@ ASR 和 diarize 可用 `--start`、`--duration` 做同一范围的短样本；�
 
 `sonafolio check-llm` 会发送一个不含录音的微型真实请求，用于验证连接；常规离线检查无需执行。真实 analyze 不上传原始 M4A 或 HF 令牌，不自动切换供应商。Prompt、强制类目、缓存和输出说明见 [skills.md](skills.md)。
 
+## 桌面桥接调试
+
+以 macOS 为当前验收基准，Windows 实机验证暂缓。桌面宿主后续启动以下进程，并持续读写其管道：
+
+```sh
+python3 -B scripts/workspace.py run -- sonafolio ipc
+# 导出请求、方法参数及输出消息的 JSON Schema，无模型／网络调用
+python3 -B scripts/workspace.py run -- sonafolio ipc --schema > .tmp/ipc-schema.json
+```
+
+首条输出为 `server.ready`。每次请求使用新的 ID，例如 `{"protocol_version":1,"id":"req-1","method":"hello","params":{}}`。任务启动后先收到接受响应，再收到进度与最终事件；查询、取消和读取结果通过同一通道进行，字段与限额见[协议说明](architecture.md#本地桌面协议-v1)。关闭 stdin 会取消当前任务并等待退出，发送启动请求后应保持管道开放直到终态。单次人工处理继续使用 `run` 命令。
+
+stdout 只输出协议帧，诊断在 stderr 或任务日志；错误消息不会回显 API Key、请求原文或异常正文。此入口尚未连接 HTML 原型，也未打包成独立桌面应用。
+
 ## 验证与构建
 
 ```sh

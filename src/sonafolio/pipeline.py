@@ -9,6 +9,7 @@ import math
 from pathlib import Path
 import sys
 import uuid
+from typing import Literal
 
 from .audio import fingerprint, record_input
 from .paths import workspace_root, writable_path, write_json
@@ -25,12 +26,12 @@ class RunOptions:
     start: float = 0
     duration: float | None = None
     threads: int = 4
-    asr_device: str = 'auto'
-    speaker_device: str = 'cpu'
+    asr_device: Literal['auto','cpu'] = 'auto'
+    speaker_device: Literal['cpu','mps','cuda'] = 'cpu'
     num_speakers: int | None = None
     refine: bool = True
-    alignment_device: str = 'cpu'
-    analysis: str = 'preview'
+    alignment_device: Literal['cpu','mps','cuda'] = 'cpu'
+    analysis: Literal['none','preview','cloud'] = 'preview'
     skill: str | None = None
     skills_dir: str | None = None
     prompt: str | None = None

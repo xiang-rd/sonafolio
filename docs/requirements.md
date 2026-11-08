@@ -5,7 +5,7 @@
 ## 产品范围
 
 - 名称「声笺 · Sonafolio」；工作区为当前目录下的 `sonafolio/`，Python 包与命令均为 `sonafolio`。
-- 面向开源，支持 macOS 和 Windows。
+- 面向开源，长期支持 macOS 和 Windows；当前以 Apple Silicon macOS 为开发与验收基准，Windows 实机验证按用户要求暂缓，不作为当前迭代前置。
 - 优先实现可直接调用的处理核心和 CLI，后续封装桌面界面；HTTP API 按需提供，不作为桌面的前置条件。
 - 输入以 M4A 为主，主要为中文；典型单条约 60 分钟，每天约 1 条。
 - ASR、说话人区分和 LLM 分别提供适配器；支持本地、云端及混合组合。

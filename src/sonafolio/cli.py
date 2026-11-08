@@ -228,6 +228,16 @@ def migrate(legacy: Path = typer.Argument(..., exists=True, file_okay=False), ap
     typer.echo(json.dumps(migrate_legacy(legacy, apply=apply), ensure_ascii=False, indent=2))
 
 
+@app.command()
+def ipc(schema: bool = typer.Option(False, help="Print protocol request/parameter schemas and exit")):
+    """Serve versioned JSON Lines over stdio for a trusted local desktop parent."""
+    from .ipc import protocol_schema, serve_stdio
+    if schema:
+        typer.echo(json.dumps(protocol_schema(),ensure_ascii=False,indent=2))
+    else:
+        serve_stdio()
+
+
 def main():
     try:
         app()

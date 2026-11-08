@@ -97,7 +97,7 @@ data/
 - 统一任务状态为 `imported/running/completed/preview_only/failed/cancelled`，阶段尝试为 `running/completed/failed/cancelled`。同任务通过 OS 文件锁拒绝并行写入；锁随进程退出释放，残留锁文件不代表仍在运行。硬中断可能留下 running 尝试，下次可重算，分析会续用已校验的分块检查点。
 - Pipeline 每阶段在独立 Python 进程中执行，取消令牌或 Ctrl+C 会清理推理进程组；Windows 使用进程树终止，尚待实机验收。不同任务的全局模型并发限制及批次恢复属于 T09。
 
-`run_pipeline(audio, options=RunOptions(...), cancelled=..., on_event=...)` 是核心入口；`resume_pipeline(task_id)` 沿用保存的参数。事件包含 `task_id/stage/state`，CLI 将事件写 stderr、最终 JSON 写 stdout；当前是阶段粒度，原生模型详细进度仍在各阶段本地文件。生产桌面协议的版本化属于 T04。
+`run_pipeline(audio, options=RunOptions(...), cancelled=..., on_event=...)` 是核心入口；`resume_pipeline(task_id)` 沿用保存的参数。事件包含 `task_id/stage/state`，CLI 将事件写 stderr、最终 JSON 写 stdout；当前是阶段粒度，原生模型详细进度仍在各阶段本地文件。桌面使用下述版本化 IPC 封装这些事件。
 
 默认 `analysis=preview`，完成本地识别／说话人与可选细化后生成发送计划；`none` 止于转写，`cloud` 显式发送转写给 DeepSeek。失败的分析继续使用自己的未完成版本，成功历史保持独立；只改合并预算时可复制匹配签名的分类／提取检查点，新预算仍生成独立结果。
 
@@ -110,11 +110,43 @@ data/
 桌面集成方向（除已有 CLI 编排外，其余尚未实现）：
 
 1. 已有 `sonafolio run <audio>`；后续桌面复用核心编排，仍保留单阶段命令。
-2. 为桌面定义带协议版本、任务 ID 的请求和事件。优先验证通过标准输入／输出传递 JSON Lines，日志与协议分流；具体字段在实现时确定。
-3. 桌面通过 sidecar 启动受控 Python 处理进程；分别制作 macOS Apple Silicon / Windows x64 运行包，再评估其他架构。
+2. 已有 `sonafolio ipc` 标准输入／输出 JSON Lines 桥接，协议版本为 1；桌面宿主与前端适配尚未实现。
+3. 桌面通过 sidecar 启动受控 Python 处理进程；当前优先制作 macOS Apple Silicon 运行包，Windows 实机验收按用户要求暂缓，后续再恢复跨平台发行。
 4. 桌面用户选择可写工作区，环境、模型、推理缓存和结果放入该目录；安装目录与数据目录分离，不向应用包内部写数据。
 
 新编排模块需调用现有核心，不在 CLI、Rust 或前端复制业务规则。正式打包必须验证 Python/native 依赖、GPU 与 CPU 路径、路径迁移、签名和安装体验；Tauri 的平台支持不代表模型依赖已在对应平台验收。
+
+## 本地桌面协议 v1
+
+`ipc.py:DesktopServer` 复用 Pipeline 和任务存储；`sonafolio ipc` 作为受信任本地宿主的子进程运行，通过 UTF-8 JSON Lines 通信，不监听网络端口。所有输出帧包含 `protocol_version=1`、单调递增的 `seq` 和 `type`。输入／输出及各方法参数 Schema 可通过 `sonafolio ipc --schema` 导出；参数拒绝未知字段及隐式字符串／布尔转换。`RunOptions` 的默认值和类型由核心派生。
+
+请求示例：
+
+```json
+{"protocol_version":1,"id":"req-1","method":"hello","params":{}}
+```
+
+成功响应为 `type=response,id,ok=true,result`；错误响应为 `type=response,id,ok=false,error={code,message}`。无法解析请求时 `id=null`。事件为 `type=event,event,data`，任务事件另含 `operation_id`。首次输出 `server.ready`，随后通过 `task.progress` 传递阶段状态，以 `operation.finished` 结束一次操作；异步请求的接受响应先于该操作的任何事件。
+
+| 方法 | 参数与结果 |
+| --- | --- |
+| `hello` | 返回版本、平台、方法、限额和默认分析模式 |
+| `tasks.list` | `offset/limit`；返回任务摘要、总数和不可读记录数，不读取全部转写；损坏记录不阻断正常列表 |
+| `tasks.get` | `task_id`；返回标题、状态、阶段摘要、音频基本信息、分析版本及最新结果相对目录 |
+| `tasks.run` | `audio/options/force`；默认 preview，显式 cloud 才请求 LLM；返回排队状态和 `operation_id` |
+| `tasks.resume` | `task_id`，可选 `analysis`；省略时沿用任务保存的分析模式 |
+| `operations.get` | `operation_id`；查询本次服务会话中的状态、结果或稳定错误 |
+| `operations.cancel` | `operation_id`；设置取消令牌，等待 `operation.finished` 确认终态；取消请求可能与正常完成交错 |
+| `tasks.rename` | `task_id/title`；更新显示标题，沿用核心任务锁 |
+| `artifacts.read` | `task_id/path/offset/limit`；仅允许任务内 JSON / Markdown，相对路径不得越界或指向原音频；返回 base64 字节块、下一偏移和 EOF |
+
+异步操作状态为 `queued/running/cancelling/completed/preview_only/failed/cancelled`，`operation_id` 区分同任务的不同调用，稳定 `task_id` 仍是录音指纹。服务一次只接受一个处理操作，忙时返回 `BUSY`；控制请求继续响应。保留最近 128 个操作和 2048 个请求 ID；保留窗口内重复请求 ID 返回 `DUPLICATE_REQUEST`，不再次执行。跨会话任务状态仍通过 manifest 和 `tasks.get` 恢复；批次调度属于 T09。
+
+输入一行最多 1 MiB，超长行被完整丢弃后可继续处理后续请求。`artifacts.read` 每块最多 128 KiB，按字节偏移；客户端应拼接字节或使用流式 UTF-8 解码，避免中文跨块截断。文件内容不自动出现在任务列表和进度中。越界、格式或参数错误不回显请求原文；处理失败仅暴露稳定错误码与异常类型，具体诊断留在本地阶段日志。
+
+宿主必须持续读取 stdout 并保持 stdin 开放；EOF、SIGINT 或 SIGTERM 会请求取消并等待当前处理退出，沿用 Pipeline 的子进程树清理。Python 打印重定向至 stderr，原生推理日志留在阶段文件，stdout 保持协议帧。同步导入、指纹计算等本地 I/O 在返回后观察取消令牌。此接口仅供本地受信任宿主，未提供网络鉴权或远程服务。
+
+本轮以模拟宿主验证 Schema、消息关联／顺序、异常恢复、忙碌／取消和字节分块，并在 macOS 真实子进程验证 EOF／SIGTERM 退出与日志分流；Tauri / React 消费端及独立 Python 运行包仍待接入，不能将契约测试视为完整桌面验收。
 
 ## 设计约束与资料
 

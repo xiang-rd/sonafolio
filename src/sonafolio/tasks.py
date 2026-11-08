@@ -101,7 +101,7 @@ def task_for_artifact(path: Path) -> Path:
 def load_manifest(task: Path) -> dict:
     task = writable_path(task)
     manifest = json.loads(workspace_path(task / 'manifest.json').read_text(encoding='utf-8'))
-    if manifest.get('schema_version') != 1 or manifest.get('task_id') != task.name or manifest.get('input', {}).get('sha256') != task.name:
+    if not isinstance(manifest, dict) or manifest.get('schema_version') != 1 or manifest.get('task_id') != task.name or not isinstance(manifest.get('input'), dict) or manifest['input'].get('sha256') != task.name:
         raise ValueError('Unsupported or mismatched task manifest')
     source = workspace_path(task / manifest['input']['path'])
     if not source.is_relative_to(task / 'input'):
