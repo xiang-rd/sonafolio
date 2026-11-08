@@ -19,10 +19,11 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def data_root() -> Path:
+def data_root(relative: str | None = None) -> Path:
     config = writable_path('sonafolio.toml')
     values = tomllib.loads(config.read_text(encoding='utf-8')) if config.is_file() else {}
-    relative = values.get('storage', {}).get('data_dir', 'data')
+    if relative is None:
+        relative = values.get('storage', {}).get('data_dir', 'data')
     if not isinstance(relative, str) or not relative.strip():
         raise ValueError('storage.data_dir must be a workspace-relative directory')
     relative = relative.strip()

@@ -61,7 +61,7 @@ POSIX 系统保存时设置 `0600` 权限；Windows 凭据访问控制尚需单�
 
 `probe` 和音频阶段会导入录音：创建受管副本并核对 SHA-256，源文件不改动；重复导入同内容复用同一任务。任务 ID 与显示标题分离；`rename-task` 只改标题，不改受管音频文件名和来源引用。
 
-在本地 `sonafolio.toml` 中设置 `[storage] data_dir = "data"` 可修改 CLI 的数据根目录；必须是工作区内专用相对目录，不得占用模型、缓存、密钥、环境、源码或场景目录，符号链接解析后仍须在工作区内。目录自动写入忽略业务内容的 `.gitignore`，避免自定义目录中的私有文件进入 Git。模型和运行缓存继续由工作区启动器管理。浏览器原型设置仍只保存在内存，尚未接入此配置文件。
+在本地 `sonafolio.toml` 中设置 `[storage] data_dir = "data"` 可修改 CLI 的数据根目录；必须是工作区内专用相对目录，不得占用模型、缓存、密钥、环境、源码或场景目录，符号链接解析后仍须在工作区内。目录自动写入忽略业务内容的 `.gitignore`，避免自定义目录中的私有文件进入 Git。模型和运行缓存继续由工作区启动器管理。浏览器原型设置仍只保存在内存；真实桌面的存储设置已连接该文件。真实桌面暂只允许编辑数据目录，模型与缓存目录保持固定。
 
 变更配置不会搬迁已有数据。当前提供旧布局到新任务结构的复制迁移，不提供任意两数据根目录间的一键搬迁。迁移前备份，迁移失败保留旧文件；不通过替换路径字符串代替实际复制与引用校验。
 
@@ -133,7 +133,36 @@ python3 -B scripts/workspace.py run -- sonafolio ipc --schema > .tmp/ipc-schema.
 
 首条输出为 `server.ready`。每次请求使用新的 ID，例如 `{"protocol_version":1,"id":"req-1","method":"hello","params":{}}`。任务启动后先收到接受响应，再收到进度与最终事件；查询、取消和读取结果通过同一通道进行，字段与限额见[协议说明](architecture.md#本地桌面协议-v1)。关闭 stdin 会取消当前任务并等待退出，发送启动请求后应保持管道开放直到终态。单次人工处理继续使用 `run` 命令。
 
-stdout 只输出协议帧，诊断在 stderr 或任务日志；错误消息不会回显 API Key、请求原文或异常正文。此入口尚未连接 HTML 原型，也未打包成独立桌面应用。
+stdout 只输出协议帧，诊断在 stderr 或任务日志；错误消息不会回显 API Key、请求原文或异常正文。HTML 原型保持独立；真实 Tauri / React 应用通过此入口连接包内 Python。
+
+## macOS 桌面与独立运行包
+
+当前交付是 macOS Apple Silicon 开发版，目标 macOS 14+，本机验证；不是经过 Developer ID 签名与公证的公开安装包。Windows 实机继续暂缓。应用输出为 `dist/macos/Sonafolio.app`，约 1.12 GiB，不包含模型、录音或密钥。
+
+```sh
+open "dist/macos/Sonafolio.app"
+```
+
+启动后手动选择工作区；当前不在全局位置保存“上次工作区”。选择现有项目目录可沿用本地 `.models/` 和凭据。新工作区需先按本文模型准备步骤下载模型，桌面只显示准备状态，尚无模型下载 UI。模型与运行缓存路径当前只读，数据目录可保存，修改后不会自动移动旧文件。原型中的 AI 场景起草／编辑尚未接通，真实界面只读已有场景；导入批次目前仅会话内串行队列，任务本身持久保存，可从录音库恢复。
+
+构建需要 Xcode Command Line Tools、Node 和项目内 Rust；不修改系统工具链、Shell 或全局包。Rust 固定版本见 `desktop/rust-toolchain.toml`，Cargo 与 npm 依赖分别由两个锁文件固定。首次在工作区安装 Rust，可从[官方 rustup](https://rustup.rs/)下载安装脚本到 `.tmp` 后，以 `RUSTUP_HOME="$PWD/.runtime/rustup" CARGO_HOME="$PWD/.runtime/cargo"` 执行，使用 `--no-modify-path --profile minimal --default-toolchain 1.99.1`。后续命令统一通过桌面启动器：
+
+```sh
+# 锁定的 Python 依赖先按前文 bootstrap 准备
+python3 -B scripts/desktop.py -- npm ci
+# 首次缺少依赖缓存时加 --online；全程按 uv.lock 校验哈希
+python3 -B scripts/workspace.py run -- python scripts/build_macos_runtime.py --online
+# 默认离线构建；只改一方代码时可以快速刷新应用 wheel 与启动器
+python3 -B scripts/workspace.py run -- python scripts/build_macos_runtime.py --refresh-code
+python3 -B scripts/desktop.py -- npm run build
+python3 -B scripts/desktop.py -- npm test
+python3 -B scripts/desktop.py -- cargo check --manifest-path src-tauri/Cargo.toml
+python3 -B scripts/desktop.py -- npm exec tauri build -- --debug --bundles app
+```
+
+完整构建也可省略 `--online` 使用已有缓存；依赖锁变更后不能仅 refresh-code。运行包在 `build/macos-runtime/`，Tauri 输出 `.cache/cargo-target/debug/bundle/macos/Sonafolio.app`；交付时复制到 `dist/macos/`。这些目录均忽略 Git。`scripts/desktop.py` 将 Rust 工具链、Cargo target、npm 与编译缓存限制在项目内；不会向全局安装 npm 包或修改 rustup 默认配置。
+
+运行不需要系统 Python。包内 `runtime/launch.py` 默认进入 IPC，也可在设置 `SONAFOLIO_WORKSPACE` 后转发普通 CLI 参数（例如模型下载），由内置 Python 以 `-I -B` 执行；`--check` 检查全部原生后端、TorchCodec 解码及 dyld 外部库依赖。它在模型导入之前应用工作区环境，不创建或搬运 `.venv`。记录运行包与模型版本，升级代码后按阶段签名决定复用；长录音、多人准确率和 Metal 性能不由单个合成样本验证替代。
 
 ## 验证与构建
 

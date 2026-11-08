@@ -35,7 +35,7 @@ ASR 与说话人区分的数据依赖独立，图中的分支不代表已实现�
 | 任务存储与编排 | `tasks.py`、`pipeline.py`、`processes.py`、`_pipeline_worker.py`、`migration.py` | 录音 → 受管任务、阶段版本、进度事件、恢复／取消、复制迁移与索引重建 | `test_tasks_pipeline.py` |
 | 用户入口 | `cli.py`、`__main__.py` | 参数 → 核心函数 → JSON 结果或错误退出 | CLI 帮助检查及相关模块测试 |
 
-拆分 Agent 时可按表分工。`cli.py`、依赖与锁文件、公共契约文档属于共享修改点；由集成负责人合并，避免多个分支同时调整入口和协议。未来桌面模块尚无源码目录，不提前创建空目录。
+拆分 Agent 时可按表分工。`cli.py`、依赖与锁文件、公共契约文档属于共享修改点；由集成负责人合并，避免多个分支同时调整入口和协议。桌面代码位于 `desktop/`，Rust 宿主只负责进程与系统集成，React 不复制核心业务规则。
 
 ## 阶段产物契约
 
@@ -105,14 +105,14 @@ data/
 
 当前模型组合为 whisper.cpp / pywhispercpp + Silero VAD、pyannote community-1、中文 Wav2Vec2 CTC，以及 DeepSeek JSON 输出。模型来源和 revision 记录在工作区 `.models/` 的清单内；模型下载与推理显式分离。其他供应商、本地 LLM 和云端 ASR 仍待接入。
 
-后续保留 Python 处理核心，桌面方向采用 **Tauri 2 + TypeScript / React + Python 独立处理进程**。Rust 负责桌面生命周期和系统集成，不重写现有模型管线。CLI 与桌面复用同一核心；暂不为桌面强制引入 HTTP 服务。
+当前保留 Python 处理核心，桌面采用 **Tauri 2 + TypeScript / React + Python 独立处理进程**。Rust 负责桌面生命周期和系统集成，不重写现有模型管线。CLI 与桌面复用同一核心；暂不为桌面强制引入 HTTP 服务。
 
-桌面集成方向（除已有 CLI 编排外，其余尚未实现）：
+桌面集成与当前实现：
 
 1. 已有 `sonafolio run <audio>`；后续桌面复用核心编排，仍保留单阶段命令。
-2. 已有 `sonafolio ipc` 标准输入／输出 JSON Lines 桥接，协议版本为 1；桌面宿主与前端适配尚未实现。
-3. 桌面通过 sidecar 启动受控 Python 处理进程；当前优先制作 macOS Apple Silicon 运行包，Windows 实机验收按用户要求暂缓，后续再恢复跨平台发行。
-4. 桌面用户选择可写工作区，环境、模型、推理缓存和结果放入该目录；安装目录与数据目录分离，不向应用包内部写数据。
+2. 已有 `sonafolio ipc` 标准输入／输出 JSON Lines 桥接，协议版本为 1；Rust 宿主与 React 消费端已接入。
+3. `desktop/src-tauri/src/main.rs` 从 `.app/Contents/Resources/runtime` 启动内置 Python。`scripts/build_macos_runtime.py` 由受管 CPython 和 `uv.lock` 全部 extras 构建独立运行包，模型权重另存工作区；当前为 macOS arm64 开发版，Windows 实机暂缓。
+4. 用户显式选择可写工作区，模型、推理缓存、配置、密钥、结果及日志写入该目录；Python 和依赖随应用只读分发，不在用户机器全局安装。WebView 使用 incognito，外观配置存工作区 TOML，启动不读取其他浏览器配置。
 
 新编排模块需调用现有核心，不在 CLI、Rust 或前端复制业务规则。正式打包必须验证 Python/native 依赖、GPU 与 CPU 路径、路径迁移、签名和安装体验；Tauri 的平台支持不代表模型依赖已在对应平台验收。
 
@@ -138,6 +138,8 @@ data/
 | `operations.get` | `operation_id`；查询本次服务会话中的状态、结果或稳定错误 |
 | `operations.cancel` | `operation_id`；设置取消令牌，等待 `operation.finished` 确认终态；取消请求可能与正常完成交错 |
 | `tasks.rename` | `task_id/title`；更新显示标题，沿用核心任务锁 |
+| `settings.get/save` | 查询工作区配置；保存 LLM、写入式 Key、数据目录和外观，处理期间拒绝修改；返回是否已配置，不返回密钥 |
+| `scenes.list` | 返回已启用场景的解析后 Prompt、Schema 与模板；当前只读 |
 | `artifacts.read` | `task_id/path/offset/limit`；仅允许任务内 JSON / Markdown，相对路径不得越界或指向原音频；返回 base64 字节块、下一偏移和 EOF |
 
 异步操作状态为 `queued/running/cancelling/completed/preview_only/failed/cancelled`，`operation_id` 区分同任务的不同调用，稳定 `task_id` 仍是录音指纹。服务一次只接受一个处理操作，忙时返回 `BUSY`；控制请求继续响应。保留最近 128 个操作和 2048 个请求 ID；保留窗口内重复请求 ID 返回 `DUPLICATE_REQUEST`，不再次执行。跨会话任务状态仍通过 manifest 和 `tasks.get` 恢复；批次调度属于 T09。
@@ -146,7 +148,17 @@ data/
 
 宿主必须持续读取 stdout 并保持 stdin 开放；EOF、SIGINT 或 SIGTERM 会请求取消并等待当前处理退出，沿用 Pipeline 的子进程树清理。Python 打印重定向至 stderr，原生推理日志留在阶段文件，stdout 保持协议帧。同步导入、指纹计算等本地 I/O 在返回后观察取消令牌。此接口仅供本地受信任宿主，未提供网络鉴权或远程服务。
 
-本轮以模拟宿主验证 Schema、消息关联／顺序、异常恢复、忙碌／取消和字节分块，并在 macOS 真实子进程验证 EOF／SIGTERM 退出与日志分流；Tauri / React 消费端及独立 Python 运行包仍待接入，不能将契约测试视为完整桌面验收。
+本轮以模拟宿主验证 Schema、消息关联／顺序、异常恢复、忙碌／取消和字节分块，并在 macOS 真实子进程验证 EOF／SIGTERM 退出与日志分流；本轮还以真实 Tauri / React 窗口验证了工作区连接、总结／转写读取、重命名与配置保存；独立运行包另有原生库、模型短样本与搬迁验证。完整跨平台和公开发行验收仍待完成。
+
+## macOS 运行包与真实界面
+
+`desktop/src/bridge.ts` 将 Tauri command 封装为协议调用，先订阅事件再连接；Rust 读线程关联请求／响应并转发事件。每次工作区连接带独立 connection ID，旧连接的退出事件不会覆盖新会话；React 缓冲早于接受 Promise 返回的进度／终态，避免快速任务产生悬挂状态。Rust 宿主关闭 stdin、等待退出，必要时发送 SIGTERM；工作区 `.runtime/logs/desktop-backend.log` 保存后端诊断，界面不显示凭据或异常正文。
+
+React 当前接入录音列表／状态筛选、原生文件选择、会话内串行多文件导入、任务取消与恢复、显示标题修改、总结／转写／发送预览、引用核对、Finder 定位、只读场景目录、DeepSeek 配置与工作区数据目录。后端配置由 `desktop_settings.py` 保留其他 TOML 表，Key 单独保存为 0600 文件；文件存在检测用于展示本地模型准备状态。目录修改不自动迁移数据，固定模型／缓存目录尚未提供编辑；AI 场景作者、持久批次、角色校正和音频播放属于后续工作。
+
+运行包包含受管 CPython 3.12、锁定的全部处理依赖、应用 wheel、启动器和版本／锁文件清单。包内 TorchCodec 固定使用 PyAV 已携带的 FFmpeg 8 ABI，改写 Mach-O 依赖后本地重签名，避免从 Homebrew 借库。运行验证通过 dyld 已加载库检查和合成音频解码，而非仅凭 import 判定。构建不打包模型权重、数据目录、密钥或开发虚拟环境；源码 sdist 包含 desktop 源码与两个前端／Rust 锁文件，排除 node_modules、产物和生成 Schema。
+
+本机已验证中文与空格路径搬迁、受限 PATH 下独立启动、包内真实 ASR／pyannote／一个片段的 CTC 推理及本地 IPC。当前 .app 为开发构建，目标 macOS 14+ / arm64；只在当前开发机实测，不代表所有 macOS 14 设备或 Intel Mac 已验收。Developer ID 签名、公证、公开分发许可检查、长录音包内回归、Metal 加速与冷启动安装体验仍需后续验收。
 
 ## 设计约束与资料
 
@@ -170,11 +182,11 @@ AI 生成的 Schema 与模板须通过结构、继承、路径、沙箱渲染及
 
 ### 桌面交互原型（布局已确认）
 
-[desktop-prototype.html](desktop-prototype.html) 是单文件离线交互稿，可直接在浏览器打开。v2 保留录音库、复盘与引用核对、模型 / API Key、工作区 / 录音与结果 / 模型 / 缓存目录和重命名；将原有行业／类目／Prompt 管理合为整理场景，新增“关键词 → AI 草稿 → 编辑启用”及“批量导入 → 自动匹配 → 歧义确认 → 继续整理”的可点击流程。2026-11-08 用户确认当前布局，后续按此实现；功能仍需接入核心。
+[desktop-prototype.html](desktop-prototype.html) 是单文件离线交互稿，可直接在浏览器打开。v2 保留录音库、复盘与引用核对、模型 / API Key、工作区 / 录音与结果 / 模型 / 缓存目录和重命名；将原有行业／类目／Prompt 管理合为整理场景，新增“关键词 → AI 草稿 → 编辑启用”及“批量导入 → 自动匹配 → 歧义确认 → 继续整理”的可点击流程。2026-11-08 用户确认当前布局，后续按此实现；真实实现位于 `desktop/`，保留此文件作设计参考。
 
 使用 `html-prototype` 与 `design-artifact` 技能制作；基于 MacWhisper、Granola、Notta 的官方公开资料提炼操作方式，引用和设计理由嵌在原型的“设计说明”中。未登录这些产品做完整实操验收。
 
-所有生成、匹配、总结与进度均为标明的预设演示；配置仅存内存，刷新清空，不调用 API 或模型，不改本地文件。任意本地文件只读取名称，无转写内容时保留未匹配，不假装已理解录音。场景生成、批次调度、目录切换、场景版本管理和原文件重命名尚未接入核心；正式实现需补持久化、凭据边界、路径迁移、冲突处理及缓存失效策略。不能直接把原型视为生产前端。
+所有生成、匹配、总结与进度均为标明的预设演示；配置仅存内存，刷新清空，不调用 API 或模型，不改本地文件。任意本地文件只读取名称，无转写内容时保留未匹配，不假装已理解录音。场景生成、批次调度、目录切换、场景版本管理和原文件重命名尚未接入核心；正式实现需补持久化、凭据边界、路径迁移、冲突处理及缓存失效策略。不能直接把此 HTML 当作真实桌面前端，实际接入范围见上方 macOS 章节。
 
 ### 核心约束
 

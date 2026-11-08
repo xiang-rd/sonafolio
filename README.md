@@ -6,7 +6,7 @@
 
 AI 原生方向：批量录音由 AI 自动匹配“整理场景”，新场景由用户关键词生成可编辑规则。相关交互见 v2 设计稿，场景生成接口和批次编排尚待接入核心。
 
-目前是 **0.1.0 原型**：已在 Apple Silicon macOS 上分阶段跑通一条约 73 分钟的真实面试录音。各阶段可独立调用，`analyze` 已串联分类、提取和汇总；统一的 `sonafolio run` 已实现任务导入、阶段复用、失败续跑和取消；新增编排用合成数据验证，已提供本地桌面通信桥接，界面尚未接入；当前以 macOS 为基准推进，Windows 实机验证暂缓。准确率尚未经过系统人工评估。
+目前是 **0.1.0 原型**：已在 Apple Silicon macOS 上分阶段跑通一条约 73 分钟的真实面试录音。各阶段可独立调用，`analyze` 已串联分类、提取和汇总；统一的 `sonafolio run` 已实现任务导入、阶段复用、失败续跑和取消；包内本地模型已通过短合成语音验证，已有可启动的 macOS Apple Silicon 桌面开发版，界面通过本地协议连接包内 Python；当前以 macOS 为基准推进，Windows 实机验证暂缓。准确率尚未经过系统人工评估。
 
 ## 文档入口
 
@@ -36,13 +36,20 @@ python3 -B scripts/workspace.py run -- sonafolio probe "/path/to/recording.m4a"
 
 依赖安装不自动下载模型或发送录音。模型准备、各阶段调用和 DeepSeek 配置见[开发与运行](docs/workspace.md)。目前 ASR、说话人区分和对齐在本地执行，LLM 仅实现 DeepSeek 接口；其他本地／云端后端属于后续扩展。
 
+## macOS 桌面开发版
+
+已构建的本地应用位于 `dist/macos/Sonafolio.app`（约 1.12 GiB，macOS 14+ / Apple Silicon 编译目标，本机完成验证）。它包含 Python 和处理依赖，运行不需要系统 Python、Node 或 Rust；模型权重、录音和密钥不在应用包内。
+
+启动后选择现有工作区，可读取真实任务、导入录音、查看／取消／续跑、重命名、阅读转写与总结，保存 DeepSeek 模型、Key、数据目录与外观。模型／缓存路径当前只显示，场景编辑、AI 起草、持久批次与音频播放尚待实现。构建、模型准备与限制见[运行手册](docs/workspace.md#macos-桌面与独立运行包)。
+
 ## 文件布局
 
 ```text
 sonafolio/
   AGENTS.md            Agent 协作规则
   docs/                需求、架构、状态、运行、Skill
-  scripts/             环境初始化与启动器
+  desktop/             Tauri / React 桌面、锁文件与客户端测试
+  scripts/             环境初始化、桌面工具与运行包构建
   src/sonafolio/       核心、CLI、独立推理进程和内置 Skill
   tests/               自动化测试
   sonafolio.example.toml  配置示例

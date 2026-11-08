@@ -19,3 +19,7 @@ build/
 *.egg-info/
 .DS_Store
 Thumbs.db
+
+node_modules/
+target/
+desktop/src-tauri/gen/

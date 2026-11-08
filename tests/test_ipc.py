@@ -213,6 +213,19 @@ ipc.serve_stdio()
                 if not process.stdin.closed:process.stdin.close()
                 process.stdout.close();process.stderr.close()
 
+    def test_settings_credentials_are_write_only_and_changes_reject_active_processing(self):
+        secret='ipc-synthetic-key-not-a-real-secret'
+        saved=self.request('settings.save',{'llm':{'model':'desktop-model'},'api_key':secret})
+        self.assertTrue(saved['result']['api_key_configured'])
+        self.assertNotIn(secret,self.output.getvalue()+self.diagnostics.getvalue())
+        started=self.request('tasks.run',{'audio':str(self.audio)})
+        self.assertTrue(self.started.wait(2))
+        rejected=self.request('settings.save',{'llm':{'model':'must-not-change'}})
+        self.assertEqual(rejected['error']['code'],'BUSY')
+        self.assertEqual(self.request('settings.get')['result']['llm']['model'],'desktop-model')
+        self.request('operations.cancel',{'operation_id':started['result']['operation_id']})
+        self.wait_finished()
+
     def test_real_process_jsonl_framing_size_limit_eof_and_diagnostics(self):
         def request(identifier,method='hello',**params):
             return json.dumps({'protocol_version':1,'id':identifier,'method':method,'params':params}).encode()+b'\n'

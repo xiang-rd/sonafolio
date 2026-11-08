@@ -31,7 +31,7 @@ sonafolio = "sonafolio.cli:main"
 packages = ["src/sonafolio"]
 
 [tool.hatch.build]
-exclude = ["/.venv/**", "/.runtime/**", "/.cache/**", "/.models/**", "/.tmp/**", "/data/**", "/.env*", "/sonafolio.toml", "/dist/**", "/build/**"]
+exclude = ["/.venv/**", "/.runtime/**", "/.cache/**", "/.models/**", "/.tmp/**", "/data/**", "/.env*", "/sonafolio.toml", "/dist/**", "/build/**", "/desktop/node_modules/**", "/desktop/dist/**", "/desktop/src-tauri/target/**", "/desktop/src-tauri/gen/**"]
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/scripts", "/tests", "/docs", "/README.md", "/AGENTS.md", "/pyproject.toml", "/uv.lock", "/.python-version", "/sonafolio.example.toml", "/.gitignore"]
+include = ["/desktop", "/src", "/scripts", "/tests", "/docs", "/README.md", "/AGENTS.md", "/pyproject.toml", "/uv.lock", "/.python-version", "/sonafolio.example.toml", "/.gitignore"]

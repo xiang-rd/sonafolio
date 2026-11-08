@@ -53,7 +53,7 @@ def local_path(root: Path, relative: str) -> Path:
     return target
 
 
-def build_environment(root: Path, parent: dict[str, str]) -> dict[str, str]:
+def build_environment(root: Path, parent: dict[str, str], *, include_venv: bool = True) -> dict[str, str]:
     env = parent.copy()
     for key in (
         "PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "CONDA_PREFIX",
@@ -68,7 +68,7 @@ def build_environment(root: Path, parent: dict[str, str]) -> dict[str, str]:
     paths = {key: local_path(root, value) for key, value in DIRECTORIES.items()}
     token = local_path(root, ".runtime/secrets/huggingface-token")
     venv_bin = local_path(root, ".venv/Scripts" if os.name == "nt" else ".venv/bin")
-    for path in [*paths.values(), token.parent, venv_bin]:
+    for path in [*paths.values(), token.parent, *([venv_bin] if include_venv else [])]:
         path.mkdir(parents=True, exist_ok=True)
     env.update({key: str(path) for key, path in paths.items()})
     env.update({
@@ -87,7 +87,7 @@ def build_environment(root: Path, parent: dict[str, str]) -> dict[str, str]:
         "UV_PYTHON_DOWNLOADS": "manual",
     })
     env["PATH"] = os.pathsep.join([
-        str(venv_bin), str(paths["UV_TOOL_BIN_DIR"]), parent.get("PATH", "")
+        *([str(venv_bin)] if include_venv else []), str(paths["UV_TOOL_BIN_DIR"]), parent.get("PATH", "")
     ])
     return env
 

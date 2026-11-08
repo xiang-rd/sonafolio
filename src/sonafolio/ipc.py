@@ -80,11 +80,19 @@ class ReadParams(TaskParams):
     limit: int = Field(default=65536, ge=1, le=MAX_ARTIFACT_BYTES)
 
 
+class SettingsParams(Params):
+    appearance: Literal['light','dark','system'] | None = None
+    llm: dict | None = None
+    data_dir: str | None = None
+    api_key: str | None = None
+
+
 METHODS = {
     'hello': Params, 'tasks.list': ListParams, 'tasks.get': TaskParams,
     'tasks.run': RunParams, 'tasks.resume': ResumeParams,
     'tasks.rename': RenameParams, 'operations.get': OperationParams,
     'operations.cancel': OperationParams, 'artifacts.read': ReadParams,
+    'settings.get': Params, 'settings.save': SettingsParams, 'scenes.list': Params,
 }
 
 
@@ -231,6 +239,18 @@ class DesktopServer:
                             job['state'] = 'cancelled'
 
     def dispatch(self, method, params):
+        if method == 'settings.get':
+            from .desktop_settings import get_settings
+            return get_settings(), None
+        if method == 'settings.save':
+            with self._state_lock:
+                if any(job['state'] in {'queued','running','cancelling'} for job in self._jobs.values()):
+                    raise RPCError('BUSY','Wait for processing to finish before changing settings')
+            from .desktop_settings import save_settings
+            return save_settings(**params.model_dump()), None
+        if method == 'scenes.list':
+            from .desktop_settings import scene_catalog
+            return scene_catalog(), None
         if method == 'hello':
             return self.capabilities(), None
         if method == 'tasks.list':
