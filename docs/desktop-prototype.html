@@ -137,34 +137,34 @@ dialog:has(#import-form){max-width:560px}
 
 .scene-index-toggle{display:none}
 @media(max-width:720px){
- .scene-manager .scene-editor-head{flex-wrap:nowrap;gap:8px;padding:12px 18px}
- .scene-manager .editor-heading{flex-basis:auto;flex-wrap:nowrap;gap:7px;min-width:0}
- .scene-manager .editor-heading h2{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:14px}
- .scene-manager .editor-heading #scene-dirty{font-size:10px;white-space:nowrap;max-width:78px;overflow:hidden;text-overflow:ellipsis;flex-shrink:1}
- .scene-manager .editor-actions{width:auto;gap:6px;flex:none}
- .scene-manager .editor-actions .btn{font-size:11px;padding:7px;min-height:32px;gap:5px}
- .scene-manager .editor-actions .btn svg{width:14px;height:14px}
- .scene-manager .editor-actions .link-btn{font-size:11px}
+ .adaptive-workspace .scene-editor-head{flex-wrap:nowrap;gap:8px;padding:12px 18px}
+ .adaptive-workspace .editor-heading{flex-basis:auto;flex-wrap:nowrap;gap:7px;min-width:0}
+ .adaptive-workspace .editor-heading h2{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;font-size:14px}
+ .adaptive-workspace .editor-heading #scene-dirty{font-size:10px;white-space:nowrap;max-width:78px;overflow:hidden;text-overflow:ellipsis;flex-shrink:1}
+ .adaptive-workspace .editor-actions{width:auto;gap:6px;flex:none}
+ .adaptive-workspace .editor-actions .btn{font-size:11px;padding:7px;min-height:32px;gap:5px}
+ .adaptive-workspace .editor-actions .btn svg{width:14px;height:14px}
+ .adaptive-workspace .editor-actions .link-btn{font-size:11px}
 }
 @media(min-width:600px) and (max-width:720px){
- .scene-manager .scene-split{display:grid;grid-template-columns:154px minmax(0,1fr)}
- .scene-manager .scene-library{padding:16px 10px;border-right:1px solid var(--line);border-bottom:0;gap:12px;min-height:0}
- .scene-manager .scene-library-head{padding:0 3px}
- .scene-manager .scene-index{flex-direction:column;overflow-x:clip;overflow-y:auto;padding:0;gap:3px}
- .scene-manager .scene-list-row{width:100%;max-width:none;min-width:0;padding:10px;gap:4px}
- .scene-manager .scene-list-row strong{font-size:12px}.scene-manager .scene-row-meta{font-size:10px}
+ .adaptive-workspace .scene-split{display:grid;grid-template-columns:154px minmax(0,1fr)}
+ .adaptive-workspace .scene-library{padding:16px 10px;border-right:1px solid var(--line);border-bottom:0;gap:12px;min-height:0}
+ .adaptive-workspace .scene-library-head{padding:0 3px}
+ .adaptive-workspace .scene-index{flex-direction:column;overflow-x:clip;overflow-y:auto;padding:0;gap:3px}
+ .adaptive-workspace .scene-list-row{width:100%;max-width:none;min-width:0;padding:10px;gap:4px}
+ .adaptive-workspace .scene-list-row strong{font-size:12px}.adaptive-workspace .scene-row-meta{font-size:10px}
 }
 @media(max-width:599px){
- .scene-manager .scene-library{position:relative;z-index:5;padding:8px 14px;border-bottom:1px solid var(--line)}
- .scene-manager .scene-library-head{gap:12px;padding:0}
- .scene-manager .scene-library-head h2{display:none}
+ .adaptive-workspace .scene-library{position:relative;z-index:5;padding:8px 14px;border-bottom:1px solid var(--line)}
+ .adaptive-workspace .scene-library-head{gap:12px;padding:0}
+ .adaptive-workspace .scene-library-head h2{display:none}
  .scene-index-toggle{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:240px;text-align:left;padding:6px 4px;font-size:12px;color:var(--accent);border-radius:4px}
  .scene-index-toggle>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.scene-index-toggle svg{width:12px;height:12px}
- .scene-manager .scene-index{display:none;position:absolute;top:100%;left:12px;right:12px;max-height:260px;overflow-y:auto;flex-direction:column;gap:3px;padding:6px;border:1px solid var(--line);border-radius:7px;background:var(--paper);box-shadow:var(--shadow)}
- .scene-manager .index-open .scene-index{display:flex}
- .scene-manager .scene-list-row{max-width:none;min-width:0;flex-direction:row;align-items:center;justify-content:space-between;gap:12px;padding:11px 10px}
- .scene-manager .scene-list-row .scene-row-meta{flex:none}
- .scene-manager .editor-heading #scene-dirty{max-width:52px}
+ .adaptive-workspace .scene-index{display:none;position:absolute;top:100%;left:12px;right:12px;max-height:260px;overflow-y:auto;flex-direction:column;gap:3px;padding:6px;border:1px solid var(--line);border-radius:7px;background:var(--paper);box-shadow:var(--shadow)}
+ .adaptive-workspace .index-open .scene-index{display:flex}
+ .adaptive-workspace .scene-list-row{max-width:none;min-width:0;flex-direction:row;align-items:center;justify-content:space-between;gap:12px;padding:11px 10px}
+ .adaptive-workspace .scene-list-row .scene-row-meta{flex:none}
+ .adaptive-workspace .editor-heading #scene-dirty{max-width:52px}
 }
 
 /* Portrait navigation: identity and explicit import above equal navigation items. */
@@ -231,7 +231,7 @@ function transcript(r){return '<div class="reading-inner"><div class="segment-fi
 function reviewContent(r){return '<div class="reading-inner"><div class="stack"><h2>保留不确定，再回到原话。</h2><p class="lede">未可靠归属的内容不会强行算作某个人的回答。</p></div>'+(r.unresolved?'<div class="notice warn">'+icon('warning')+'<div><strong>说话人归属待确认</strong><br>18:42 后的接话可能包含多人声音。 '+cite('s05')+'</div></div><div class="notice warn">'+icon('warning')+'<div><strong>技术术语待核对</strong><br>对齐结果保留原始识别文字，需回听确认。 '+cite('s06')+'</div></div><button class="btn" data-action="speakers">'+icon('people')+'更正参与者角色</button>':'<div class="notice ok">'+icon('check')+'<div>当前示例没有单独标记的待核对项。模型未标记不代表内容已经人工确认。</div></div>')+'<p class="small muted">这里是后续功能的交互示意，尚未连接真实人工校正流程。</p></div>'}
 function evidence(r){if(!ui.evidence)return'';const list=recordSources(r),focus=list.find(s=>s.id===ui.evidence)||list[1];const index=list.indexOf(focus),near=list.slice(Math.max(0,index-1),Math.min(list.length,index+2));return '<aside class="evidence" aria-label="原文核对"><div class="evidence-head"><h3>原文核对</h3><button class="icon-btn" data-action="close-evidence" aria-label="关闭原文核对">'+icon('close')+'</button></div><div class="evidence-context">引用 '+time(focus.at)+'，保留前后文</div><div class="evidence-transcript">'+near.map(s=>'<section class="utterance '+(s.id===focus.id?'active':'')+'"><div class="who"><strong>'+(s.speaker===null?'归属待确认':esc(roles[r.speakers[s.speaker]?.role||'unknown']))+'</strong><button class="cite" data-action="seek" data-id="'+s.id+'">'+time(s.at)+'</button></div><div class="quote">'+esc(s.text)+'</div></section>').join('')+'</div><div class="evidence-foot"><button class="link-btn" data-action="tab" data-id="transcript">查看逐字稿上下文</button><p>角色来自内容推断，可能有误。原型使用虚构文字，时间轴仅演示定位。</p></div></aside>'}
 function player(r){return '<footer class="player"><button class="play" data-action="play" aria-label="'+(ui.playing?'暂停时间轴演示':'开始时间轴演示，无音频')+'">'+icon(ui.playing?'pause':'play')+'</button><span class="time" id="play-position">'+time(ui.position)+'</span><div class="wave" aria-hidden="true">'+[5,11,8,16,10,6,13,17,8,12,5,10].map(h=>'<i style="height:'+h+'px"></i>').join('')+'</div><label class="sr-only" for="seek-range">示例录音时间位置</label><input type="range" min="0" max="'+r.duration+'" value="'+Math.min(ui.position,r.duration)+'" id="seek-range"><span class="time">'+time(r.duration)+'</span><button class="speed" data-action="speed" aria-label="时间轴演示速度">'+ui.speed.toFixed(1)+'×</button><span class="player-caption">时间轴演示，无音频</span></footer>'}
-function settingsPage(){return '<main class="view-full scene-workspace settings-workspace"><header class="scene-page-header"><h1>设置</h1></header><div class="scene-split"><aside class="scene-library"><div class="scene-library-head"><h2>设置项</h2></div><nav class="scene-index" aria-label="设置分类">'+[['models','AI 模型与 API'],['storage','存储位置'],['appearance','外观']].map(([id,label])=>'<button class="scene-list-row '+(ui.settingsTab===id?'active':'')+'" data-action="settings-tab" data-id="'+id+'" '+(ui.settingsTab===id?'aria-current="page"':'')+'><strong>'+label+'</strong></button>').join('')+'</nav></aside>'+(ui.settingsTab==='models'?modelSettings():ui.settingsTab==='storage'?storageSettings():appearanceSettings())+'</div></main>'}
+function settingsPage(){return '<main class="view-full scene-workspace settings-workspace adaptive-workspace"><header class="scene-page-header"><h1>设置</h1></header><div class="scene-split"><aside class="scene-library '+(ui.sceneIndexOpen?'index-open':'')+'"><div class="scene-library-head"><h2>设置项</h2><button class="scene-index-toggle" type="button" data-action="toggle-scene-index" aria-expanded="'+!!ui.sceneIndexOpen+'" aria-controls="settings-index-nav"><span>'+esc(({models:'AI 模型与 API',storage:'存储位置',appearance:'外观'})[ui.settingsTab])+'</span>'+icon('down')+'</button></div><nav id="settings-index-nav" class="scene-index" aria-label="设置分类">'+[['models','AI 模型与 API'],['storage','存储位置'],['appearance','外观']].map(([id,label])=>'<button class="scene-list-row '+(ui.settingsTab===id?'active':'')+'" data-action="settings-tab" data-id="'+id+'" '+(ui.settingsTab===id?'aria-current="page"':'')+'><strong>'+label+'</strong></button>').join('')+'</nav></aside>'+(ui.settingsTab==='models'?modelSettings():ui.settingsTab==='storage'?storageSettings():appearanceSettings())+'</div></main>'}
 function modelSettings(){return '<form id="model-form" class="scene-editor settings-editor" novalidate><header class="scene-editor-head"><div class="editor-heading"><h2>AI 模型与 API</h2></div><div class="editor-actions"><button class="btn" id="test-model" type="button" data-action="test-model">检查连接</button><button class="btn primary" type="submit">保存模型配置</button></div></header><section class="scene-fields"><div class="field-grid"><div class="field"><label for="provider">服务商</label><select class="input" id="provider" name="provider">'+option('deepseek','DeepSeek',config.provider)+option('compatible','兼容 OpenAI 的服务',config.provider)+option('local','本地模型服务',config.provider)+'</select></div><div class="field"><label for="model">模型名称</label><input class="input" id="model" name="model" value="'+esc(config.model)+'" placeholder="例如 deepseek-flash" required></div></div><div class="field"><label for="endpoint">API 地址</label><input class="input" id="endpoint" name="endpoint" type="url" value="'+esc(config.endpoint)+'" placeholder="https://api.example.com" required><span class="help">用于场景生成、匹配和总结。</span></div><div class="field"><label for="api-key">API Key <span id="key-optional" class="muted small">'+(config.provider==='local'?'（本地服务可留空）':'')+'</span></label><div class="input-row"><input class="input mono" id="api-key" name="apiKey" type="password" autocomplete="off" spellcheck="false" value="'+esc(config.apiKey)+'" placeholder="仅输入演示值 demo-key"><button class="btn" type="button" data-action="reveal-key" aria-label="显示 API Key" aria-pressed="false">'+icon('eye')+'</button></div><span class="help">仅用 demo-key 演示，请勿输入真实密钥。</span></div><div class="row wrap"><span id="model-message" role="status" class="small muted">尚未检查演示连接</span></div><p class="field-error" id="model-error" role="alert"></p><p class="small muted">演示配置，刷新清空。</p></section></form>'}
 function joined(root,relative){const sep=/^[A-Za-z]:/.test(root)?'\\':'/';return root.replace(/[\\/]+$/,'')+sep+relative.replace(/[\\/]+/g,sep)}
 function storageSettings(){return '<form id="storage-form" class="scene-editor settings-editor" novalidate><header class="scene-editor-head"><div class="editor-heading"><h2>存储位置</h2></div><div class="editor-actions"><button class="btn primary" type="submit">预览目录变更</button></div></header><section class="scene-fields"><div class="field"><label for="platform">路径格式</label><select class="input" id="platform" name="platform">'+option('mac','macOS',config.platform)+option('windows','Windows',config.platform)+'</select></div><div class="field"><label for="workspace-path">工作区目录</label><input class="input mono" id="workspace-path" name="workspace" value="'+esc(config.workspace)+'" required><span class="help">工作区绝对路径。</span></div><div class="field"><label for="models-path">模型文件目录</label><input class="input mono" id="models-path" name="models" value="'+esc(config.models)+'" required><span class="help">工作区内的相对路径。</span><span class="path" id="models-preview">'+esc(joined(config.workspace,config.models))+'</span></div><div class="field"><label for="cache-path">模型下载与运行缓存目录</label><input class="input mono" id="cache-path" name="cache" value="'+esc(config.cache)+'" required><span class="help">工作区内的相对路径。</span><span class="path" id="cache-preview">'+esc(joined(config.workspace,config.cache))+'</span></div><p class="field-error" id="storage-error" role="alert"></p><p class="small muted">更改目录不会迁移已有文件。</p></section></form>'}
@@ -320,7 +320,7 @@ function showUsedScene(){const r=current(),v=r.sceneSnapshot;openDialog('本次�
 
 function routingReview(r){return '<div class="reading-inner"><span class="pill warn">AI 匹配需要确认</span><h2 class="summary-heading">这条对话，适合怎样整理？</h2><p class="lede">'+esc(r.routing?.reason||'尚未匹配到明确场景。')+'</p><div class="notice">'+icon('file')+'<div>转写已保留；确认场景后从内容整理阶段继续，不重做前面的工作。</div></div><div class="route-candidates">'+(r.routing?.candidates||[]).map(id=>'<button class="route-candidate" data-action="confirm-scene" data-record="'+r.id+'" data-id="'+id+'"><strong>'+esc(sceneName(id))+'</strong><span>按这个场景继续</span>'+icon('chevron')+'</button>').join('')+'</div><form id="route-form" class="stack"><div class="field"><label for="route-scene">或选择一个已启用场景</label><select class="input" id="route-scene" name="scene">'+sceneOptions('')+'</select></div><button class="btn primary" type="submit">确认场景并继续</button></form><div class="row wrap"><button class="link-btn" data-action="new-scene-from-record" data-id="'+r.id+'">用关键词创建新场景</button><button class="link-btn" data-action="batch">先处理其他录音</button></div><div class="preview-pane"><h3>用来判断的虚构内容样例</h3>'+recordSources(r).map(s=>'<p><span class="mono muted">'+time(s.at)+'</span> '+esc(s.text)+'</p>').join('')+'<p class="small muted">真实产品依据转写内容和来源片段判断。这里没有读取真实音频。</p></div></div>'}
 
-function rulesPage(){return '<main class="view-full scene-workspace scene-manager"><header class="scene-page-header"><h1>整理场景</h1><span class="small muted">'+scenes.filter(s=>s.enabled&&!s.draft).length+' 个已启用</span></header>'+sceneEditor()+'</main>'}
+function rulesPage(){return '<main class="view-full scene-workspace adaptive-workspace"><header class="scene-page-header"><h1>整理场景</h1><span class="small muted">'+scenes.filter(s=>s.enabled&&!s.draft).length+' 个已启用</span></header>'+sceneEditor()+'</main>'}
 function sceneEditor(){
  const p=scenes.find(s=>s.id===ui.scene)||scenes[0],v=drafts[p.id]||p;
  return `<div class="scene-split">
@@ -458,7 +458,7 @@ document.addEventListener('click',e=>{
  case'batch':ui.fromBatch=null;switchView('batch');break;
  case'select-batch':ui.batchId=id;ui.batchFilter='all';render();break;
  case'return-batch':ui.batchId=ui.fromBatch;ui.fromBatch=null;switchView('batch');document.querySelector('.batch-task-scroll')?.scrollTo(0,ui.batchScroll||0);break;
- case'settings-tab':ui.settingsTab=id;render();break;
+ case'settings-tab':ui.settingsTab=id;ui.sceneIndexOpen=false;render();break;
  case'theme':{const dark=document.documentElement.dataset.theme==='dark'||(!document.documentElement.dataset.theme&&matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.dataset.theme=dark?'light':'dark';toast(dark?'已切换浅色外观。':'已切换深色外观。');break}
  case'menu':ui.menu=!ui.menu;render(true);break;
  case'rename':renameDialog();break;
@@ -543,7 +543,7 @@ function openLibraryFilter(){const menu=document.getElementById('library-filter-
  window.addEventListener('resize',()=>closeLibraryFilter(false));
 
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&ui.sceneIndexOpen){ui.sceneIndexOpen=false;render();document.querySelector('.scene-index-toggle')?.focus()}});
-document.addEventListener('pointerdown',e=>{if(ui.sceneIndexOpen&&ui.view==='rules'&&!e.target.closest('.scene-manager .scene-library')){ui.sceneIndexOpen=false;const library=document.querySelector('.scene-manager .scene-library');library?.classList.remove('index-open');document.querySelector('.scene-index-toggle')?.setAttribute('aria-expanded','false')}});
+document.addEventListener('pointerdown',e=>{if(ui.sceneIndexOpen&&['rules','settings'].includes(ui.view)&&!e.target.closest('.adaptive-workspace .scene-library')){ui.sceneIndexOpen=false;const library=document.querySelector('.adaptive-workspace .scene-library');library?.classList.remove('index-open');document.querySelector('.scene-index-toggle')?.setAttribute('aria-expanded','false')}});
 
 function appearanceSettings(){const selected=ui.appearance||document.documentElement.dataset.theme||'system';return '<section class="scene-editor"><header class="scene-editor-head"><h2>外观</h2><span class="small muted">立即生效</span></header><div class="scene-fields"><fieldset class="appearance-options"><legend class="sr-only">主题</legend>'+[['light','浅色'],['dark','深色'],['system','跟随系统']].map(([value,label])=>'<label class="appearance-option"><input type="radio" name="appearance" value="'+value+'" '+(selected===value?'checked':'')+'><span>'+label+'</span></label>').join('')+'</fieldset></div></section>'}
  document.addEventListener('change',e=>{if(e.target.name==='appearance'){ui.appearance=e.target.value;if(ui.appearance==='system')delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=ui.appearance;announce('外观已切换')}});
