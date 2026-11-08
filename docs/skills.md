@@ -67,7 +67,9 @@ python3 -B scripts/workspace.py run -- sonafolio analyze path/to/transcript.json
 
 `--dry-run` 仅写入本地发送计划和完整文本预览，不调用 API。真实 `analyze` 会把转写文本、片段编号、时间戳、声音编号和场景指令发送给配置的 DeepSeek 服务。当前不会向 DeepSeek 上传原始音频，也不会向其发送 Hugging Face 令牌。
 
-结果按类目写入 `data/output/<主类目>/<子类目>/<运行标识>/`，包含 `summary.md`、`summary.json` 和带来源锚点的 `sources.md`。SQLite 索引位于 `data/index.sqlite`。模型推断结果仍需回听复核，Schema 与来源编号校验不等于事实准确率验证。
+当前实现的结果按类目写入 `data/output/<主类目>/<子类目>/<运行标识>/`，包含 `summary.md`、`summary.json` 和带来源锚点的 `sources.md`。SQLite 索引位于 `data/index.sqlite`。模型推断结果仍需回听复核，Schema 与来源编号校验不等于事实准确率验证。
+
+已确认的后续布局将场景快照、检查点和总结收进同一任务的 `analysis/<分析版本>/`；分类通过全局索引筛选，不再将唯一结果分散到顶层 `output/`。此调整尚未实施，目录与迁移契约见 [architecture.md](architecture.md#已确认的数据布局待实施)。
 
 ## 下一阶段：统一整理场景与 AI 起草（尚未实现）
 
