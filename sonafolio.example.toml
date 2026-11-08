@@ -9,5 +9,8 @@ thinking = false
 # Store API keys through configure-deepseek, never in this file.
 
 [storage]
-# Relative to workspace; existing data is NOT moved when this changes.
+# Relative to workspace; editing this file does NOT move existing files.
+# The desktop storage settings provide previewed copy migration.
 data_dir = "data"
+models_dir = ".models"
+cache_dir = ".cache"

@@ -11,6 +11,12 @@ CACHE_ENV = {'HF_HOME': 'huggingface', 'HF_HUB_CACHE': 'huggingface/hub',
              'CLANG_MODULE_CACHE_PATH': 'clang', 'XDG_CACHE_HOME': '.'}
 
 
+def overlaps(left: Path, right: Path) -> bool:
+    # Conservative on every OS; macOS commonly aliases case-only path variants.
+    a=tuple(part.casefold() for part in left.parts); b=tuple(part.casefold() for part in right.parts)
+    return a[:len(b)]==b or b[:len(a)]==a
+
+
 def storage_roots(root: Path, overrides: dict | None = None) -> dict[str, Path]:
     if overrides and set(overrides)-set(DEFAULTS):raise ValueError('Unknown storage setting')
     root = root.resolve(strict=True)
@@ -28,16 +34,19 @@ def storage_roots(root: Path, overrides: dict | None = None) -> dict[str, Path]:
             raise ValueError(f'{key} must remain relative to the workspace')
         forbidden = PROTECTED | (set(DEFAULTS.values()) - {default})
         target = (root / relative).resolve()
-        if not target.is_relative_to(root) or target == root or relative.parts[0] in forbidden:
+        if not target.is_relative_to(root) or target == root or relative.parts[0].casefold() in {name.casefold() for name in forbidden}:
             raise ValueError(f'{key} overlaps a protected directory or escapes the workspace')
         for protected in forbidden:
             other = (root / protected).resolve()
-            if target == other or target in other.parents or other in target.parents:
+            if overlaps(target,other):
                 raise ValueError(f'{key} overlaps a protected directory')
+        legacy_input=root/'data/input'
+        if tuple(part.casefold() for part in target.parts)[:len(legacy_input.parts)]==tuple(part.casefold() for part in legacy_input.parts):
+            raise ValueError('Storage must not overwrite legacy inputs')
         if target.exists() and not target.is_dir():
             raise ValueError(f'{key} must be a directory')
         paths[key] = target
     for key, path in paths.items():
-        if any(path == other or path in other.parents or other in path.parents for name, other in paths.items() if key != name):
+        if any(overlaps(path,other) for name, other in paths.items() if key != name):
             raise ValueError('Data, model and cache directories must not overlap')
     return paths

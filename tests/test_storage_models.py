@@ -17,9 +17,11 @@ class StorageModelTests(unittest.TestCase):
         self.root=Path(temporary.name).resolve()
         env=patch.dict(os.environ,{'SONAFOLIO_WORKSPACE':str(self.root)});env.start();self.addCleanup(env.stop)
     def test_paths_are_disjoint_and_cannot_alias_source_or_escape(self):
-        for value in ['../out','/outside','desktop/files','data/models','.runtime/models','skills/models']:
+        for value in ['../out','/outside','desktop/files','data/models','.runtime/models','skills/models','.RUNTIME/models','.GIT/files','Desktop/cache']:
             with self.subTest(value=value),self.assertRaises(ValueError):storage_roots(self.root,{'models_dir':value})
         with self.assertRaises(ValueError):storage_roots(self.root,{'models_dir':'assets','cache_dir':'assets/cache'})
+        with self.assertRaises(ValueError):storage_roots(self.root,{'models_dir':'assets/MODELS','cache_dir':'assets/models/cache'})
+        with self.assertRaises(ValueError):storage_roots(self.root,{'data_dir':'data/input'})
         (self.root/'linked').symlink_to(self.root.parent,target_is_directory=True)
         with self.assertRaises(ValueError):storage_roots(self.root,{'models_dir':'linked'})
         save_settings(models_dir='assets/models',cache_dir='assets/cache')
@@ -80,6 +82,19 @@ class StorageModelTests(unittest.TestCase):
         target.write_bytes(b'ab')
         with patch('httpx.stream',return_value=Wrong()),self.assertRaises(ModelError):fetch_file('https://example.invalid/file',target,entry)
         self.assertFalse(target.exists())
+    def test_cancelled_transfer_keeps_partial_bytes_for_range_retry(self):
+        stop=[False]
+        class Response:
+            status_code=200;headers={}
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+            def raise_for_status(self):pass
+            def iter_bytes(self,*args):yield b'abc';yield b'def'
+        target=self.root/'partial';entry={'size':6,'sha256':hashlib.sha256(b'abcdef').hexdigest()}
+        with patch('httpx.stream',return_value=Response()),self.assertRaises(CancelledError):
+            fetch_file('https://example.invalid/file',target,entry,cancelled=lambda:stop[0],progress=lambda _:stop.__setitem__(0,True))
+        self.assertEqual(target.read_bytes(),b'abc')
+
     def test_verified_installation_retains_previous_model_and_checks_all_files(self):
         identifier='vad';value=CATALOG[identifier];directory=self.root/'.models'/value['directory'];directory.mkdir(parents=True)
         (directory/'keep.bin').write_bytes(b'previous model')
@@ -94,6 +109,16 @@ class StorageModelTests(unittest.TestCase):
         (directory/value['files'][0]).write_bytes(b'bad')
         with self.assertRaises(ModelError):verify_model(identifier)
         self.assertFalse(next(i for i in model_catalog()['items'] if i['id']==identifier)['verified'])
+    def test_interrupted_publication_restores_previous_installation_on_retry(self):
+        from sonafolio.model_manager import recover_publication
+        from sonafolio.paths import write_json
+        backup=self.root/'.models/.history/vad-recovery';backup.mkdir(parents=True)
+        (backup/'old.bin').write_bytes(b'previous')
+        write_json(self.root/'.runtime/model-jobs/publish-vad.json',{'backup':str(backup)})
+        recover_publication('vad')
+        self.assertEqual((self.root/'.models/whisper-vad/old.bin').read_bytes(),b'previous')
+        self.assertFalse(backup.exists())
+
     def test_failed_download_leaves_installed_model_untouched(self):
         value=CATALOG['vad'];directory=self.root/'.models'/value['directory'];directory.mkdir(parents=True)
         original=directory/value['files'][0];original.write_bytes(b'old')

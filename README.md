@@ -24,7 +24,7 @@ AI 原生方向：批量录音由 AI 自动匹配“整理场景”，新场景�
 
 ## 快速开始
 
-先准备 uv 和用于启动安装脚本的 Python 3.10+。脚本将 uv 复制到工作区，并安装项目专用 Python 与依赖；不会向现有 Python 安装包。以下命令在项目根目录执行，Windows 将 `python3` 替换为 `py -3`。
+先准备 uv 和用于启动安装脚本的 Python 3.11+。脚本将 uv 复制到工作区，并安装项目专用 Python 与依赖；不会向现有 Python 安装包。以下命令在项目根目录执行，Windows 将 `python3` 替换为 `py -3`。
 
 ```sh
 python3 -B scripts/bootstrap.py --asr --diarization --alignment
@@ -40,7 +40,7 @@ python3 -B scripts/workspace.py run -- sonafolio probe "/path/to/recording.m4a"
 
 已构建的本地应用位于 `dist/macos/Sonafolio.app`（约 1.12 GiB，macOS 14+ / Apple Silicon 编译目标，本机完成验证）。它包含 Python 和处理依赖，运行不需要系统 Python、Node 或 Rust；模型权重、录音和密钥不在应用包内。
 
-启动后选择现有工作区，可读取真实任务、导入录音、查看／取消／续跑、重命名、阅读转写与总结，保存 DeepSeek 模型、Key、数据目录与外观。支持场景编辑与版本保存、AI 关键词起草、持久批次与独立重试、原音频播放和逐字稿时间跳转。模型／缓存路径当前只显示。构建、模型准备与限制见[运行手册](docs/workspace.md#macos-桌面与独立运行包)。
+启动后选择现有工作区，可读取真实任务、导入录音、查看／取消／续跑、重命名、阅读转写与总结，保存 DeepSeek 模型、Key、数据目录与外观。支持场景编辑与版本保存、AI 关键词起草、持久批次与独立重试、原音频播放和逐字稿时间跳转。设置页还支持模型下载／校验、HF 令牌和数据／模型／缓存目录的检查与复制迁移。构建、模型准备与限制见[运行手册](docs/workspace.md#macos-桌面与独立运行包)。
 
 ## 文件布局
 

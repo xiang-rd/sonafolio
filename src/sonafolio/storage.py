@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 import uuid
 from .paths import workspace_root, writable_path, workspace_path
-from .storage_config import storage_roots
+from .storage_config import storage_roots, overlaps
 from .tasks import file_lock
 from .processes import CancelledError
 
@@ -28,7 +28,7 @@ def plan_storage(directories: dict, mode: str) -> dict:
         if old[key] == new[key]: continue
         # A new root cannot contain or be contained by any previous root.
         for source in old.values():
-            if new[key] == source or source in new[key].parents or new[key] in source.parents:
+            if overlaps(new[key],source):
                 raise ValueError('New storage must not overlap an existing storage root')
         files = files_under(old[key]) if mode == 'copy' else []
         if mode == 'copy' and new[key].exists() and any(new[key].iterdir()):

@@ -55,6 +55,8 @@ def local_path(root: Path, relative: str) -> Path:
 
 
 def build_environment(root: Path, parent: dict[str, str], *, include_venv: bool = True) -> dict[str, str]:
+    if sys.version_info < (3,11):
+        raise ValueError('Workspace launcher requires Python 3.11+; the application bundles Python 3.12')
     env = parent.copy()
     for key in (
         "PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "CONDA_PREFIX",
