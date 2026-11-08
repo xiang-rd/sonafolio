@@ -1,8 +1,25 @@
-# Sonafolio 场景 Skill 协议 v1
+# Sonafolio 场景 Skill 协议
 
 这是项目自己的声明式场景格式，用于分类和内容整理。它不执行 Python、Shell 或其他插件代码，不宣称兼容其他 Agent 的 Skill 运行时。项目开发协作规则见根目录 [AGENTS.md](../AGENTS.md)，两者用途不同。
 
-## 文件
+## 桌面作者格式 v2
+
+内置资源和手写 `skill.toml` 继续兼容 v1。桌面编辑保存为工作区 `skills/<id>/scene.json`，`protocol_version=2`；不可变历史在同目录 `versions/<version>.json`，不会修改应用内置包。文件包含 `version/created_at/digest/scene`。`scene` 包含：
+
+- `id/name/description/parent/enabled`：稳定标识、显示名称、路由说明和启用状态。
+- `keywords/use_when/not_when`：整理意图、适用及排除条件，均进入 LLM 路由说明；关键词不作字符串命中规则。
+- `prompt/schema/template/example`：完整解析后的指令、Draft 2020-12 对象结构、Markdown 模板和可选预览示例。v2 不再次拼接父级 Prompt 或 Schema；`parent` 只保留分类层级语义。
+
+同 ID 的 v2 覆盖内置定义或同目录的 v1；不同自定义目录重复 ID、缺失父级和循环关系会拒绝。编辑已有场景必须携带 `expected_version`，避免旧界面覆盖新版本；保存自动增加 patch 版本。首轮覆盖内置定义会同时保留原始版本。`unknown` 必须启用，`general` 不开放编辑。
+
+保存及模板预览先校验 Schema、示例和沙箱渲染；禁止外部 Schema 引用，仅允许调用 `refs()` 与 `role_name()`，输出有大小上限。复杂约束无法自动构造示例时，在高级选项提供符合 Schema 的 JSON 示例；示例会随版本保存。
+
+AI 起草通过现有 `llm.request_json` 调用 DeepSeek：关键词 → 名称、说明、适用／排除条件、Prompt、模板及基础场景选择。输出结构复用选中的基础场景 Schema，不运行生成代码。草稿保存在 `skills/.drafts/<id>/`，可取消，生成失败不发布；只有人工确认保存为已启用版本才进入路由。草稿原文和诊断默认为私有文件。
+
+新任务保存完整场景目录到任务内 `catalogs/`，分析目录继续保留实际分类目录和选中场景快照。批次在导入时冻结目录和模型设置；后续编辑只影响新建任务／批次，恢复沿用原快照。未能明确分类的批次项进入 `needs_review`，先保留分类依据，再人工选本批可用场景并继续提取；直接 CLI `analyze` 默认仍可使用 unknown 通用整理。
+
+## 手写资源格式 v1
+
 
 每个场景一个目录：
 

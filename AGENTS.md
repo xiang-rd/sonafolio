@@ -14,7 +14,7 @@
 
 ## 开发边界
 
-- 保留 Python 处理核心；Tauri / Rust + TypeScript / React 桌面开发版位于 `desktop/`，当前已在 macOS arm64 构建并接入核心主流程。统一 Pipeline 已实现于 `pipeline.py`，任务存储在 `tasks.py`；`ipc.py` 已提供版本化本地 stdio 协议，HTTP 服务尚未实现。当前以 macOS 为开发与验收基准，Windows 实机验证暂缓；真实界面只读场景，编辑／AI 起草与持久批次仍按 T08／T09 推进。
+- 保留 Python 处理核心；Tauri / Rust + TypeScript / React 桌面开发版位于 `desktop/`，当前已在 macOS arm64 构建并接入核心主流程。统一 Pipeline 已实现于 `pipeline.py`，任务存储在 `tasks.py`；`ipc.py` 已提供版本化本地 stdio 协议，HTTP 服务尚未实现。当前以 macOS 为开发与验收基准，Windows 实机验证暂缓；真实界面已接入场景编辑／AI 起草、持久批次与受管原音频播放；T08／T09 的实现与验证范围见 status。
 - 使用 `scripts/workspace.py run -- ...` 启动核心项目命令，依赖只进入工作区。桌面构建通过 `scripts/desktop.py -- ...`，运行包通过 `scripts/build_macos_runtime.py`，Rust / npm 缓存与工具链也只放项目；不要直接执行会落入全局缓存的 cargo / npm 安装命令。不要修改系统 Python、全局包、Shell 配置、注册表或全局模型缓存。具体路径见运行手册。
 - 输入音频只读。生成文件必须经过工作区路径约束；不要删除或覆盖用户录音、密钥、模型和已有结果。
 - `.runtime/secrets/` 是本地明文凭据存储，已忽略版本管理；不打印、复制进文档、提交、打包或发送给模型。真实转写、日志、失败返回和模型文件也不纳入源码。

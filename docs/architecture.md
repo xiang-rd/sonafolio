@@ -33,6 +33,7 @@ ASR 与说话人区分的数据依赖独立，图中的分支不代表已实现�
 | 场景 Skill | `skills.py:SkillRegistry/render_summary`、`builtin_skills/` | 清单／Prompt／Schema／模板 → 场景定义与 Markdown | `test_skills.py` |
 | 内容分析与输出 | `analysis.py:analyze_recording` | 带说话人转写 → 分类、提取、汇总、来源页、索引 | `test_skills.py` |
 | 任务存储与编排 | `tasks.py`、`pipeline.py`、`processes.py`、`_pipeline_worker.py`、`migration.py` | 录音 → 受管任务、阶段版本、进度事件、恢复／取消、复制迁移与索引重建 | `test_tasks_pipeline.py` |
+| 场景作者与批次 | `scenes.py`、`_scene_worker.py`、`batches.py` | 声明式编辑／关键词 → 版本／草稿；文件列表 → 持久队列、冻结目录与独立恢复 | `test_scene_authoring.py`、`test_batches.py` |
 | 用户入口 | `cli.py`、`__main__.py` | 参数 → 核心函数 → JSON 结果或错误退出 | CLI 帮助检查及相关模块测试 |
 
 拆分 Agent 时可按表分工。`cli.py`、依赖与锁文件、公共契约文档属于共享修改点；由集成负责人合并，避免多个分支同时调整入口和协议。桌面代码位于 `desktop/`，Rust 宿主只负责进程与系统集成，React 不复制核心业务规则。
@@ -62,10 +63,15 @@ ASR 与说话人区分的数据依赖独立，图中的分支不代表已实现�
 
 ```text
 data/
+  batches/
+    <批次 UUID>/
+      batch.json             队列、各项状态及任务引用
+      catalog.json           导入时冻结的完整场景目录
   runs/
     <任务 ID>/
       input/                 原始录音
       manifest.json          任务身份、文件信息、状态、配置与版本
+      catalogs/              自足的目录／Prompt 快照
       asr/                   转写及阶段版本
       diarization/           说话人区间及阶段版本
       alignment/             合并、对齐与归属结果及阶段版本
@@ -83,7 +89,7 @@ data/
 - 任务 ID 独立于显示标题和原文件名；录音指纹用于完整性与复用校验，重命名不改变任务身份或引用。
 - 每个任务目录包含其处理所需的录音、阶段产物和分析版本，不依赖另一个任务目录；模型、下载缓存、密钥和全局场景定义仍独立管理。分析所用场景保存快照，不以最新场景覆盖历史。
 - 修改 Prompt、场景或模型后，按依赖与参数生成新的阶段／分析版本；可复用的转写与说话人结果保留，历史结果不隐式覆盖。manifest 的 `stages` 按阶段保存尝试列表，每项包含签名、状态、相对目录、输入／设置指纹和完成产物的 SHA-256。签名不匹配或产物丢失／损坏时不复用；`--force` 新建尝试，保留历史。
-- 后续批量导入将创建多个任务，通过批次 ID 关联；当前仅预留 manifest 的 `batch_ids`，批次调度尚未实现。批次不拥有唯一的原始录音副本。按场景组织主要通过索引和筛选实现，不再把唯一结果分散到顶层类目目录。
+- 批量导入创建多个独立任务，通过 manifest 的 `batch_ids` 关联，批次状态单独保存在 `data/batches/<UUID>/batch.json`。批次不拥有唯一的原始录音副本。按场景组织主要通过索引和筛选实现，不再把唯一结果分散到顶层类目目录。
 - SQLite 保存跨任务索引，任务文件是索引重建的依据；完整任务目录应可独立备份和导出。`rebuild-index` 校验受管音频、总结、转写与来源引用后，以事务重建受管分析行，保留旧版索引行；SQLite 仍只有 `analyses` 表，任务状态以 manifest 为准。
 - `migrate-run` 默认预览，`--apply` 复制旧 `annotated/`、`refined/` 到 `alignment/`，汇集旧总结与检查点，更新 JSON 路径并校验来源链接和索引。失败撤回本次发布的派生目录，原录音与旧结果始终保留；可能已导入的受管录音也保留。旧数据没有历史 Skill 全文时，`scene.json` 明确记录 `legacy_snapshot_unavailable`，不拿当前规则冒充历史。迁移产物用于查看和留档，尚不自动转换为新 Pipeline 的可复用尝试。
 - `data/validation/` 现有私有验证记录不是生产任务目录的一部分，本方案不移动或删除这些记录。
@@ -94,8 +100,8 @@ data/
 - LLM 分类、提取和合并已有文件检查点，重跑会校验并复用；`--force` 重新调用模型。
 - 当前分析指纹包含整个转写、全部 Skill 定义及 LLM 设置；只改模板也可能使分析检查点失效。尚未实现独立的“仅重渲染”命令。
 - 最终合并预算和 `MERGE_VERSION` 单独区分结果，调整它们可以复用分类和提取检查点。详见 [Skill 协议](skills.md)。
-- 统一任务状态为 `imported/running/completed/preview_only/failed/cancelled`，阶段尝试为 `running/completed/failed/cancelled`。同任务通过 OS 文件锁拒绝并行写入；锁随进程退出释放，残留锁文件不代表仍在运行。硬中断可能留下 running 尝试，下次可重算，分析会续用已校验的分块检查点。
-- Pipeline 每阶段在独立 Python 进程中执行，取消令牌或 Ctrl+C 会清理推理进程组；Windows 使用进程树终止，尚待实机验收。不同任务的全局模型并发限制及批次恢复属于 T09。
+- 统一任务状态为 `imported/running/completed/preview_only/needs_review/failed/cancelled`，阶段尝试为 `running/completed/needs_review/failed/cancelled`。同任务通过 OS 文件锁拒绝并行写入；锁随进程退出释放，残留锁文件不代表仍在运行。硬中断可能留下 running 尝试，下次可重算，分析会续用已校验的分块检查点。
+- Pipeline 每阶段在独立 Python 进程中执行，取消令牌或 Ctrl+C 会清理推理进程组；Windows 使用进程树终止，尚待实机验收。桌面服务一次只处理一个批次／任务／起草操作，批次内部串行执行，避免本地模型与 LLM 过量并发；多个独立 CLI 进程仍不共享全局调度锁。
 
 `run_pipeline(audio, options=RunOptions(...), cancelled=..., on_event=...)` 是核心入口；`resume_pipeline(task_id)` 沿用保存的参数。事件包含 `task_id/stage/state`，CLI 将事件写 stderr、最终 JSON 写 stdout；当前是阶段粒度，原生模型详细进度仍在各阶段本地文件。桌面使用下述版本化 IPC 封装这些事件。
 
@@ -139,10 +145,15 @@ data/
 | `operations.cancel` | `operation_id`；设置取消令牌，等待 `operation.finished` 确认终态；取消请求可能与正常完成交错 |
 | `tasks.rename` | `task_id/title`；更新显示标题，沿用核心任务锁 |
 | `settings.get/save` | 查询工作区配置；保存 LLM、写入式 Key、数据目录和外观，处理期间拒绝修改；返回是否已配置，不返回密钥 |
-| `scenes.list` | 返回已启用场景的解析后 Prompt、Schema 与模板；当前只读 |
+| `scenes.list` | 返回全部场景（含停用项）、解析后的 Prompt／Schema／模板及 AI 草稿摘要 |
+| `scenes.save/preview/history` | `scene/expected_version` 乐观版本保存、示例渲染与不可变版本记录 |
+| `scenes.draft/draft.get` | 关键词启动异步起草；草稿 ID 读取，确认前不路由 |
+| `batches.create/list/get` | 文件列表／RunOptions 创建异步批次并开始处理，磁盘状态跨会话恢复；列表／详情省略外部源路径 |
+| `batches.run/resolve` | 按批次或指定 item 恢复；可显式指定分析模式，人工确认冻结目录内的场景 |
+| `audio.info` | `task_id` → 校验过的受管输入路径与时长；Rust 再校验 manifest 并仅授权这一音频文件 |
 | `artifacts.read` | `task_id/path/offset/limit`；仅允许任务内 JSON / Markdown，相对路径不得越界或指向原音频；返回 base64 字节块、下一偏移和 EOF |
 
-异步操作状态为 `queued/running/cancelling/completed/preview_only/failed/cancelled`，`operation_id` 区分同任务的不同调用，稳定 `task_id` 仍是录音指纹。服务一次只接受一个处理操作，忙时返回 `BUSY`；控制请求继续响应。保留最近 128 个操作和 2048 个请求 ID；保留窗口内重复请求 ID 返回 `DUPLICATE_REQUEST`，不再次执行。跨会话任务状态仍通过 manifest 和 `tasks.get` 恢复；批次调度属于 T09。
+异步操作状态为 `queued/running/cancelling/completed/preview_only/needs_review/paused/completed_with_errors/failed/cancelled`，`operation_id` 区分同任务的不同调用，稳定 `task_id` 仍是录音指纹。服务一次只接受一个处理操作，忙时返回 `BUSY`；控制请求继续响应。保留最近 128 个操作和 2048 个请求 ID；保留窗口内重复请求 ID 返回 `DUPLICATE_REQUEST`，不再次执行。跨会话任务和批次状态分别通过任务 manifest 与批次 manifest 恢复，操作 ID 本身不跨会话保存。
 
 输入一行最多 1 MiB，超长行被完整丢弃后可继续处理后续请求。`artifacts.read` 每块最多 128 KiB，按字节偏移；客户端应拼接字节或使用流式 UTF-8 解码，避免中文跨块截断。文件内容不自动出现在任务列表和进度中。越界、格式或参数错误不回显请求原文；处理失败仅暴露稳定错误码与异常类型，具体诊断留在本地阶段日志。
 
@@ -154,7 +165,7 @@ data/
 
 `desktop/src/bridge.ts` 将 Tauri command 封装为协议调用，先订阅事件再连接；Rust 读线程关联请求／响应并转发事件。每次工作区连接带独立 connection ID，旧连接的退出事件不会覆盖新会话；React 缓冲早于接受 Promise 返回的进度／终态，避免快速任务产生悬挂状态。Rust 宿主关闭 stdin、等待退出，必要时发送 SIGTERM；工作区 `.runtime/logs/desktop-backend.log` 保存后端诊断，界面不显示凭据或异常正文。
 
-React 当前接入录音列表／状态筛选、原生文件选择、会话内串行多文件导入、任务取消与恢复、显示标题修改、总结／转写／发送预览、引用核对、Finder 定位、只读场景目录、DeepSeek 配置与工作区数据目录。后端配置由 `desktop_settings.py` 保留其他 TOML 表，Key 单独保存为 0600 文件；文件存在检测用于展示本地模型准备状态。目录修改不自动迁移数据，固定模型／缓存目录尚未提供编辑；AI 场景作者、持久批次、角色校正和音频播放属于后续工作。
+React 当前接入录音列表／状态筛选、原生文件选择、持久化串行多文件导入、任务取消与恢复、显示标题修改、总结／转写／发送预览、引用核对、Finder 定位、场景编辑／版本／预览及关键词 AI 起草、DeepSeek 配置与工作区数据目录。后端配置由 `desktop_settings.py` 保留其他 TOML 表，Key 单独保存为 0600 文件；文件存在检测用于展示本地模型准备状态。目录修改不自动迁移数据，固定模型／缓存目录尚未提供编辑；角色校正、模型下载 UI 和目录编辑仍属后续工作。原音频使用 Tauri asset protocol，动态授权单文件并支持 Range 读取，避免把长音频整体塞入 JSON 或浏览器 Blob；React 提供播放／暂停、进度、倍速和逐字稿／引用时间定位。
 
 运行包包含受管 CPython 3.12、锁定的全部处理依赖、应用 wheel、启动器和版本／锁文件清单。包内 TorchCodec 固定使用 PyAV 已携带的 FFmpeg 8 ABI，改写 Mach-O 依赖后本地重签名，避免从 Homebrew 借库。运行验证通过 dyld 已加载库检查和合成音频解码，而非仅凭 import 判定。构建不打包模型权重、数据目录、密钥或开发虚拟环境；源码 sdist 包含 desktop 源码与两个前端／Rust 锁文件，排除 node_modules、产物和生成 Schema。
 
@@ -168,17 +179,17 @@ React 当前接入录音列表／状态筛选、原生文件选择、会话内�
 
 | AI 任务 | 输入 → 输出 | 当前实现边界 |
 | --- | --- | --- |
-| 场景草稿生成 | 关键词／整理意图 → 场景名称、适用与排除条件、Prompt、输出结构／模板草稿 | 新需求；原型演示，核心接口未实现；草稿不参与路由，编辑确认后启用 |
-| 录音场景匹配 | 每条完整转写的分块、已启用场景的路由说明 → 场景 ID、依据与待确认状态 | 已有单录音的 LLM 分类与层级投票；尚未接入新场景条件与批次调度 |
+| 场景草稿生成 | 关键词／整理意图 → 场景名称、适用与排除条件、Prompt、输出结构／模板草稿 | `scenes.py` 已实现异步可取消起草、结构／渲染验证与草稿持久化；输出 Schema 复用基础场景，人工启用 |
+| 录音场景匹配 | 每条完整转写的分块、已启用场景的路由说明 → 场景 ID、依据与待确认状态 | 已有分块分类与层级投票；路由包含关键词／适用／排除条件，批次 unknown 保留待确认 |
 | 内容总结 | 带说话人的转写、所选场景版本 → 分块提取、全局总结、来源引用 | 当前 `analysis.py` 已实现单录音提取与合并；保留现有证据校验 |
 
 三者是任务目的，不是固定三次 API 请求；共用凭据与供应商适配入口，分别记录输入版本、模型、用量、错误和重试。缓存按任务目的隔离，避免“改规则”与“执行规则”互相污染。后续可按任务目的选择模型，但第一版可以共用一个默认模型配置。
 
-产品中的“整理场景”映射为现有声明式 Skill 包：稳定 ID / 版本 / 启用状态、Prompt、JSON Schema 与 Markdown 模板。行业语境进入场景说明与 Prompt，不新增独立行业分类表。关键词用于作者表达意图；触发／排除条件进入路由说明，不能用字符串命中代替语义判断。现有 Skill v1 只读取 `description` 路由，新字段和草稿持久化需先明确协议与兼容策略，不能只在 UI 中增加字段后声称核心已生效。
+产品中的“整理场景”映射为现有声明式 Skill 包：稳定 ID / 版本 / 启用状态、Prompt、JSON Schema 与 Markdown 模板。行业语境进入场景说明与 Prompt，不新增独立行业分类表。关键词用于作者表达意图；触发／排除条件进入路由说明，不能用字符串命中代替语义判断。v1 保持兼容，桌面作者使用完整解析的 v2 定义，协议和版本语义见 [skills.md](skills.md)。
 
 AI 生成的 Schema 与模板须通过结构、继承、路径、沙箱渲染及示例校验；只生成声明式资源，不执行生成的代码。匹配只能返回本次提供的可用场景 ID；有歧义或无匹配时保留转写和候选依据，不自动创建场景或默默套用任意模板。
 
-批处理按录音指纹独立建任务；ASR / 说话人完成后再据内容匹配，不从文件名推断。每条任务冻结场景目录和选中版本快照，编辑仅影响新任务或显式重跑。失败、取消与待确认局限于当前任务，其他录音继续；人工确认后从内容整理阶段续跑。生产实现需分别限制本地模型与 LLM 请求并发，原型的两条并发只是交互演示。
+批处理按录音指纹独立建任务；ASR / 说话人完成后再据内容匹配，不从文件名推断。每条任务冻结场景目录和选中版本快照，编辑仅影响新任务或显式重跑。失败、取消与待确认局限于当前任务，其他录音继续；人工确认后从内容整理阶段续跑。当前桌面批次按一条串行处理；原型的两条并发只是交互演示。批次先复制可用录音再推理，失败／取消后已导入项不依赖外部源路径；导入尚未完成的项仍需保留源文件。批次锁防止同时恢复，队列状态逐项原子写入；硬退出遗留 running 项可重试。
 
 ### 桌面交互原型（布局已确认）
 

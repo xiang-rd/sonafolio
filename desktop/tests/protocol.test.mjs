@@ -33,6 +33,18 @@ test('desktop client talks to bundled Python without system Python, models or AP
   assert.equal((await request('tasks.get',{task_id:task.task_id})).title,'桌面客户端已验证');
   const artifact=await request('artifacts.read',{task_id:task.task_id,path:'manifest.json',offset:0,limit:131072});
   const manifest=JSON.parse(Buffer.from(artifact.data,'base64').toString());assert.equal(manifest.title,'桌面客户端已验证');
+  const audioInfo=await request('audio.info',{task_id:task.task_id});assert.ok(audioInfo.path.endsWith('/input/recording.wav'));
+  const scene=(await request('scenes.list')).items.find(s=>s.id==='interview.technical');
+  const {version,digest,...definition}=scene;definition.name='客户端编辑验证';
+  const saved=await request('scenes.save',{scene:definition,expected_version:version});assert.equal(saved.version,'1.0.1');
+  assert.ok((await request('scenes.preview',{scene:definition})).preview);
+  assert.equal((await request('scenes.history',{scene_id:scene.id})).items.length,2);
+  const batch=await request('batches.create',{files:[audio],options:{analysis:'none',refine:false}});
+  await until(()=>events.some(e=>e.event==='operation.finished'&&e.operation_id===batch.operation_id));
+  const batchEvent=events.find(e=>e.event==='operation.finished'&&e.operation_id===batch.operation_id);
+  const batchId=batchEvent.data.result.batch_id;
+  assert.equal((await request('batches.get',{batch_id:batchId})).items[0].state,'failed');
+  assert.equal((await request('batches.list')).items[0].batch_id,batchId);
   assert.ok(!JSON.stringify(seen).includes(key));assert.ok(!diagnostics.includes(key));
   assert.deepEqual(seen.map(f=>f.seq),seen.map((_,i)=>i+1));
  }finally{

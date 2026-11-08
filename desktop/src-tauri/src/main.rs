@@ -253,6 +253,59 @@ fn reveal_artifact(host: State<'_, Host>, path: String) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_audio_path(
+    workspace: &std::path::Path,
+    path: &std::path::Path,
+) -> Result<PathBuf, String> {
+    let target = path.canonicalize().map_err(|_| "录音文件不存在")?;
+    let input = target.parent().ok_or("录音路径无效")?;
+    let task = input.parent().ok_or("任务路径无效")?;
+    if !target.starts_with(workspace) || input.file_name().and_then(|s| s.to_str()) != Some("input")
+    {
+        return Err("只允许播放工作区内的受管录音".into());
+    }
+    let manifest_path = task
+        .join("manifest.json")
+        .canonicalize()
+        .map_err(|_| "任务信息不存在")?;
+    if !manifest_path.starts_with(task) {
+        return Err("任务信息路径无效".into());
+    }
+    let manifest: Value =
+        serde_json::from_slice(&std::fs::read(manifest_path).map_err(|_| "任务信息不可读")?)
+            .map_err(|_| "任务信息无效")?;
+    let stored = manifest["input"]["path"].as_str().ok_or("缺少录音路径")?;
+    let expected = task
+        .join(stored)
+        .canonicalize()
+        .map_err(|_| "录音路径无效")?;
+    if expected != target || !expected.starts_with(input) {
+        return Err("录音与任务信息不匹配".into());
+    }
+    if !matches!(
+        target.extension().and_then(|s| s.to_str()),
+        Some("m4a" | "mp3" | "mp4" | "wav" | "flac" | "ogg" | "aac" | "aiff" | "aif" | "m4b")
+    ) {
+        return Err("此文件不是受支持的录音格式".into());
+    }
+    Ok(target)
+}
+
+#[tauri::command]
+fn authorize_audio(
+    app: tauri::AppHandle,
+    host: State<'_, Host>,
+    path: String,
+) -> Result<String, String> {
+    let state = host.backend.lock().map_err(|_| "后端不可用")?;
+    let backend = state.as_ref().ok_or("请先连接工作区")?;
+    let target = validate_audio_path(&backend.workspace, &PathBuf::from(path))?;
+    app.asset_protocol_scope()
+        .allow_file(&target)
+        .map_err(|_| "无法授权录音播放")?;
+    Ok(target.to_string_lossy().into())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -261,7 +314,8 @@ fn main() {
             connect_workspace,
             backend_request,
             disconnect_workspace,
-            reveal_artifact
+            reveal_artifact,
+            authorize_audio
         ])
         .build(tauri::generate_context!())
         .expect("Unable to start Sonafolio")
@@ -272,4 +326,46 @@ fn main() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_audio_path;
+    use serde_json::json;
+    #[test]
+    fn audio_authorization_requires_a_managed_input_and_matching_manifest() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.tmp")
+            .join(format!("audio-scope-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("task/input")).unwrap();
+        let root = root.canonicalize().unwrap();
+        let audio = root.join("task/input/recording.m4a");
+        std::fs::write(&audio, b"synthetic").unwrap();
+        let manifest = root.join("task/manifest.json");
+        std::fs::write(
+            &manifest,
+            json!({"input":{"path":"input/recording.m4a"}}).to_string(),
+        )
+        .unwrap();
+        assert_eq!(validate_audio_path(&root, &audio).unwrap(), audio);
+        let other = root.join("task/input/other.m4a");
+        std::fs::write(&other, b"other").unwrap();
+        assert!(validate_audio_path(&root, &other).is_err());
+        assert!(validate_audio_path(&root.join("elsewhere"), &audio).is_err());
+        std::fs::write(
+            &manifest,
+            json!({"input":{"path":"../outside.m4a"}}).to_string(),
+        )
+        .unwrap();
+        assert!(validate_audio_path(&root, &audio).is_err());
+        #[cfg(unix)]
+        {
+            let outside = root.join("outside.m4a");
+            std::fs::write(&outside, b"outside").unwrap();
+            std::fs::remove_file(&audio).unwrap();
+            std::os::unix::fs::symlink(&outside, &audio).unwrap();
+            assert!(validate_audio_path(&root, &audio).is_err());
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

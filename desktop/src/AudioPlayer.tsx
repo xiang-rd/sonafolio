@@ -1,0 +1,12 @@
+import {useEffect,useRef,useState} from 'react';
+import {convertFileSrc,invoke} from '@tauri-apps/api/core';
+import {rpc} from './bridge';
+const clock=(s:number)=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+export function AudioPlayer({taskId,seek}:{taskId:string;seek:{time:number;nonce:number}|null}){
+ const audio=useRef<HTMLAudioElement>(null),[src,setSrc]=useState(''),[playing,setPlaying]=useState(false),[position,setPosition]=useState(0),[duration,setDuration]=useState(0),[rate,setRate]=useState(1),[error,setError]=useState('');
+ useEffect(()=>{let current=true;audio.current?.pause();setSrc('');setPosition(0);setDuration(0);setPlaying(false);setError('');void rpc('audio.info',{task_id:taskId}).then(info=>invoke<string>('authorize_audio',{path:info.path})).then(path=>{if(current)setSrc(convertFileSrc(path));}).catch(()=>{if(current)setError('原始录音暂不可播放');});return()=>{current=false;audio.current?.pause();};},[taskId]);
+ useEffect(()=>{if(seek&&audio.current){audio.current.currentTime=seek.time;setPosition(seek.time);}},[seek]);
+ useEffect(()=>{if(audio.current)audio.current.playbackRate=rate;},[rate,src]);
+ function toggle(){if(!audio.current)return;if(playing)audio.current.pause();else void audio.current.play().catch(()=>setError('音频加载失败，请查看原始文件'));}
+ return <footer className="player live-player"><audio ref={audio} src={src||undefined} preload="metadata" onLoadedMetadata={()=>setDuration(audio.current?.duration||0)} onTimeUpdate={()=>setPosition(audio.current?.currentTime||0)} onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onEnded={()=>setPlaying(false)} onError={()=>{if(src)setError('当前音频无法播放');}}/><button className="play" disabled={!src||!!error} onClick={toggle} aria-label={playing?'暂停录音':'播放录音'}>{playing?'Ⅱ':'▶'}</button><span className="mono small">{clock(position)}</span><input aria-label="录音播放位置" type="range" min={0} max={Number.isFinite(duration)?duration:0} step={0.1} value={Math.min(position,duration)} disabled={!duration} onChange={e=>{const value=Number(e.target.value);if(audio.current)audio.current.currentTime=value;setPosition(value);}}/><span className="mono small">{clock(Number.isFinite(duration)?duration:0)}</span><button className="speed" aria-label="播放速度" onClick={()=>setRate(value=>{const rates=[.75,1,1.25,1.5,2];return rates[(rates.indexOf(value)+1)%rates.length];})}>{rate}×</button>{error&&<span role="status" className="small muted">{error}</span>}</footer>;
+}
