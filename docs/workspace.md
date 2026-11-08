@@ -185,8 +185,24 @@ git diff --check
 
 ### GitHub 发布方向
 
-源码计划托管 GitHub，运行包通过 GitHub Releases 分发；当前未关联远程或发布 release。现有 `.app` 仍为本地开发构建。公开发行前需选择许可证、检查模型／依赖再分发条款、准备发行说明和校验和，并完成 Developer ID 签名／公证及冷启动安装验收。不要把本地工作区、密钥、模型或私有录音打进发行资产。
+源码计划托管 GitHub，运行包通过 GitHub Releases 分发；当前未关联远程或发布 release。现有 `.app` 仍为本地开发构建。当前采用无需 Apple Developer Program 的测试版方案：ad-hoc 临时签名，不公证。首次下载可能被 Gatekeeper 拦截，不能承诺仅出现普通的“是否打开”确认。公开发布前仍需选择许可证、检查模型／依赖再分发条款，并进行全新机器安装验收；将来有开发者账号后再升级 Developer ID 签名与公证。不要把本地工作区、密钥、模型或私有录音打进发行资产。
 
 模型下载临时文件位于所选缓存目录 `model-downloads/<组件>/<revision>/`，取消后保留供重试。组件安装的历史备份位于所选模型目录 `.history/`；不会自动删除旧安装。全量校验可能需要读取较大的权重文件。下载／迁移与录音推理互斥；数据目录复制后，任务恢复会从新任务内解析目录／Prompt 快照。运行包升级后重新打开应用，无需重装 Python 或依赖。
 
 “本地模型”页可选择说话人计算设备：自动模式在 Apple GPU（MPS）可用时使用 GPU，否则 CPU；CPU 可手动指定。CLI 使用工作区 `[processing].speaker_device` 默认值，也可用 `run --speaker-device` 或 `diarize --device` 明确覆盖。批次取消后修改设备，再继续处理会复用 ASR，只重新计算依赖该设备的阶段。字符对齐目前仍默认 CPU。
+
+### 无开发者账号的 macOS 测试包
+
+先完成上方 `.app` 构建，再运行（Python 3.11+）：
+
+```sh
+python3 -B scripts/package_macos.py
+```
+
+默认读取 `dist/macos/Sonafolio.app`；也可用 `--app` 指定工作区内另一个 `.app`（例如 release 构建的输出）。脚本在临时副本中逐个签名 Mach-O 文件，再签名外层应用；不修改源应用，不访问钥匙串，不需要证书或联网。随后生成 ZIP，解压回验 `codesign --verify --deep --strict`，计算 SHA-256。已有同版本产物时拒绝覆盖，保留旧包后再重新打包。临时签名只验证代码完整性，没有 Apple 认证身份，不等于 Developer ID 签名或公证。
+
+产物在 `dist/releases/Sonafolio-<版本>-dev-macos-arm64/`：ZIP、`SHA256SUMS.txt`、`FIRST-OPEN.txt` 与 `release.json`。ZIP 内含应用与打开说明，目标 Apple Silicon、macOS 14+。包内无用户录音、API 凭据或 ASR／说话人模型；第三方依赖可能包含其公共样例和辅助资源。打包器检查常见私有目录、配置与逃逸符号链接，不替代发行前依赖／许可证审查。
+
+用户首次打开：解压并将应用拖入“应用程序”，尝试打开；若提示无法验证开发者或无法检查恶意软件，关闭提示，进入“系统设置 → 隐私与安全 → 仍要打开”，再按系统要求确认。只在确认下载来源可信时放行；受管理设备可能禁止此操作。系统提示随 macOS 版本变化，参见 [Apple 首次打开说明](https://support.apple.com/102445)。无需关闭全局 Gatekeeper，也不提供自动移除隔离属性的安装脚本。
+
+GitHub Releases 后续使用预发布（Pre-release），标题明确标注“macOS 测试版／未公证”，同时提供 ZIP、校验值与打开说明。当前脚本只在本地生成文件，不创建远程仓库、不上传或发布。现有默认输入为 debug 开发构建，文件名的 `dev` 不代表优化后的正式发行版。
