@@ -236,6 +236,11 @@ def run_pipeline(audio: Path, *, options: RunOptions | None = None, force: bool 
 def resume_pipeline(task_id: str, *, analysis: str | None = None, skill: str | None = None, **kwargs) -> dict:
     task = task_directory(task_id)
     options = RunOptions(**load_manifest(task).get('options', {}))
+    for field in ('catalog','prompt'):
+        saved=getattr(options,field)
+        if saved:
+            local=writable_path(task/'catalogs'/Path(saved).name)
+            if local.is_file():setattr(options,field,local.relative_to(workspace_root()).as_posix())
     if analysis is not None:
         options.analysis = analysis
     if skill is not None:options.skill=skill

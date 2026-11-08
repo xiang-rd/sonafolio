@@ -24,7 +24,7 @@ MODEL_DIRECTORY = ".models/pyannote-community-1"
 def read_token() -> str:
     token = os.environ.get("HF_TOKEN", "").strip()
     path = writable_path(".runtime/secrets/huggingface-token")
-    if not token and path.is_file():
+    if path.is_file():
         token = path.read_text(encoding="utf-8").strip()
     if not token:
         raise RuntimeError("Configure a read token with sonafolio configure-hf after accepting community-1 access conditions")

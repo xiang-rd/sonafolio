@@ -96,6 +96,17 @@ class TaskPipelineTests(unittest.TestCase):
         self.assertEqual(self.calls.count('asr'),1)
         self.assertEqual(self.calls.count('analysis'),1)
 
+    def test_storage_copy_keeps_resume_catalog_self_contained(self):
+        from sonafolio.storage import apply_storage
+        result=run_pipeline(self.audio,options=self.options,executor=self.fake_stage)
+        apply_storage({'data_dir':'recordings'},'copy')
+        shutil.rmtree(self.root/'data')  # Disposable fixture; production migration never removes its source.
+        resumed=resume_pipeline(result['task_id'],executor=self.fake_stage)
+        self.assertEqual(resumed['state'],'completed')
+        self.assertEqual(self.calls,['asr','diarization','annotation'])
+        manifest=load_manifest(Path(resumed['run_directory']))
+        self.assertTrue(manifest['options']['catalog'].startswith('recordings/runs/'))
+
     def test_import_title_and_paths_are_stable_and_originals_are_protected(self):
         before = fingerprint(self.audio)
         _, task = record_input(self.audio)

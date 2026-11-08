@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import uuid
-from .paths import workspace_root, writable_path
+from .paths import workspace_root, writable_path, workspace_path
 from .storage_config import storage_roots
 from .tasks import file_lock
 from .processes import CancelledError
@@ -55,8 +55,10 @@ def apply_storage(directories: dict, mode: str, *, cancelled=lambda: False, on_e
                 (stage/'.gitignore').write_text('# Sonafolio private storage\n*\n')
                 source = Path(item['source'])
                 for path in files_under(source):
-                    path = writable_path(path)
-                    output = writable_path(stage / path.relative_to(source)); output.parent.mkdir(parents=True, exist_ok=True)
+                    path = workspace_path(path)
+                    output = workspace_path(stage / path.relative_to(source))
+                    if not output.is_relative_to(stage):raise ValueError('Copy escaped its staging directory')
+                    output.parent.mkdir(parents=True, exist_ok=True)
                     digest = hashlib.sha256()
                     with path.open('rb') as incoming, output.open('wb') as outgoing:
                         while data := incoming.read(1024 * 1024):

@@ -39,6 +39,15 @@ class WorkspaceTests(unittest.TestCase):
         for key in workspace.DIRECTORIES:
             self.assertTrue(Path(env[key]).is_relative_to(self.root), key)
 
+    def test_configured_model_and_cache_roots_are_applied_before_child_imports(self):
+        (self.root/'sonafolio.toml').write_text('[storage]\nmodels_dir="assets/models"\ncache_dir="assets/cache"\ndata_dir="records"\n')
+        env=workspace.build_environment(self.root,{})
+        self.assertEqual(env['HF_HOME'],str(self.root/'assets/cache/huggingface'))
+        self.assertEqual(env['TORCH_HOME'],str(self.root/'assets/cache/torch'))
+        self.assertEqual(env['SONAFOLIO_MODELS_DIR'],str(self.root/'assets/models'))
+        self.assertEqual(env['SONAFOLIO_DATA_DIR'],str(self.root/'records'))
+        self.assertTrue((self.root/'assets/cache/.gitignore').exists())
+
     def test_token_and_temp_are_local(self):
         env = workspace.build_environment(self.root, {"HF_TOKEN_PATH": "/external-token"})
         self.assertTrue(Path(env["HF_TOKEN_PATH"]).is_relative_to(self.root))

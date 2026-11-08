@@ -306,6 +306,15 @@ fn authorize_audio(
     Ok(target.to_string_lossy().into())
 }
 
+#[tauri::command]
+fn open_model_access() -> Result<(), String> {
+    Command::new("/usr/bin/open")
+        .arg("https://huggingface.co/pyannote/speaker-diarization-community-1")
+        .status()
+        .map_err(|_| "无法打开浏览器".to_string())?;
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -315,7 +324,8 @@ fn main() {
             backend_request,
             disconnect_workspace,
             reveal_artifact,
-            authorize_audio
+            authorize_audio,
+            open_model_access
         ])
         .build(tauri::generate_context!())
         .expect("Unable to start Sonafolio")

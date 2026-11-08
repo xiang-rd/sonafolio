@@ -45,6 +45,13 @@ test('desktop client talks to bundled Python without system Python, models or AP
   const batchId=batchEvent.data.result.batch_id;
   assert.equal((await request('batches.get',{batch_id:batchId})).items[0].state,'failed');
   assert.equal((await request('batches.list')).items[0].batch_id,batchId);
+  const hf='hf_synthetic_client_token_only';const hfConfig=await request('settings.save',{hf_token:hf});assert.equal(hfConfig.hf_token_configured,true);assert.ok(!JSON.stringify(hfConfig).includes(hf));
+  assert.equal((await request('models.list')).items.length,4);
+  const storage=await request('storage.plan',{directories:{models_dir:'assets/models',cache_dir:'assets/cache'},mode:'copy'});assert.equal(storage.items.length,2);
+  const storageJob=await request('storage.apply',{directories:storage.directories,mode:'copy'});
+  await until(()=>events.some(e=>e.event==='operation.finished'&&e.operation_id===storageJob.operation_id));
+  assert.equal((await request('settings.get')).storage.models_dir,'assets/models');
+  assert.ok(!JSON.stringify(seen).includes(hf));
   assert.ok(!JSON.stringify(seen).includes(key));assert.ok(!diagnostics.includes(key));
   assert.deepEqual(seen.map(f=>f.seq),seen.map((_,i)=>i+1));
  }finally{
