@@ -87,12 +87,47 @@ class SettingsParams(Params):
     api_key: str | None = None
 
 
+class SceneSaveParams(Params):
+    scene: dict
+    expected_version: str | None = None
+
+class ScenePreviewParams(Params):
+    scene: dict
+
+class SceneHistoryParams(Params):
+    scene_id: str
+
+class SceneDraftParams(Params):
+    keywords: list[str] = Field(min_length=1,max_length=30)
+
+class DraftGetParams(Params):
+    draft_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+
+class BatchCreateParams(Params):
+    files: list[str] = Field(min_length=1,max_length=500)
+    options: PipelineOptions = Field(default_factory=PipelineOptions)
+
+class BatchParams(Params):
+    batch_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+
+class BatchRunParams(BatchParams):
+    item_id: str | None = Field(default=None,pattern=r'^[a-f0-9]{32}$')
+    analysis: Literal['none','preview','cloud'] | None = None
+
+class BatchResolveParams(BatchParams):
+    item_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+    skill_id: str
+
+
 METHODS = {
     'hello': Params, 'tasks.list': ListParams, 'tasks.get': TaskParams,
     'tasks.run': RunParams, 'tasks.resume': ResumeParams,
     'tasks.rename': RenameParams, 'operations.get': OperationParams,
     'operations.cancel': OperationParams, 'artifacts.read': ReadParams,
     'settings.get': Params, 'settings.save': SettingsParams, 'scenes.list': Params,
+    'scenes.history':SceneHistoryParams,'scenes.save':SceneSaveParams,'scenes.preview':ScenePreviewParams,'scenes.draft':SceneDraftParams,'scenes.draft.get':DraftGetParams,
+    'batches.create':BatchCreateParams,'batches.list':Params,'batches.get':BatchParams,'batches.run':BatchRunParams,'batches.resolve':BatchResolveParams,
+    'audio.info':TaskParams,
 }
 
 
@@ -146,7 +181,7 @@ def task_view(task: Path) -> dict:
     if any(not isinstance(manifest.get(key),str) for key in ('title','state','created_at','updated_at')):
         raise ValueError('Task summary contains invalid display fields')
     view = {key: manifest.get(key) for key in (
-        'task_id','title','state','current_stage','created_at','updated_at','latest_result','analysis_versions')}
+        'task_id','title','state','current_stage','created_at','updated_at','latest_result','analysis_versions','batch_ids')}
     view['input'] = {key:manifest['input'].get(key) for key in ('sha256','duration_seconds','size_bytes','format','sample_rate','channels')}
     view['stages'] = {name:{'state':attempts[-1]['state'],'attempts':len(attempts)}
                       for name,attempts in manifest.get('stages',{}).items() if attempts}
@@ -239,6 +274,47 @@ class DesktopServer:
                             job['state'] = 'cancelled'
 
     def dispatch(self, method, params):
+        if method=='audio.info':
+            from .tasks import managed_input
+            task=task_directory(params.task_id);manifest=load_manifest(task)
+            return {'path':str(managed_input(task)),'duration':manifest['input'].get('duration_seconds')},None
+        if method=='scenes.history':
+            from .scenes import scene_history
+            return scene_history(params.scene_id),None
+        if method=='scenes.save':
+            from .scenes import save_scene
+            return save_scene(params.scene,expected_version=params.expected_version),None
+        if method=='scenes.preview':
+            from .scenes import preview_scene
+            return preview_scene(params.scene),None
+        if method=='scenes.draft.get':
+            from .scenes import load_draft
+            return load_draft(params.draft_id),None
+        if method=='scenes.draft':
+            from .scenes import draft_scene
+            return self.start_operation(lambda job:draft_scene(params.keywords,cancelled=job['cancel'].is_set),kind='scene_draft')
+        if method=='batches.list':
+            from .batches import list_batches
+            return list_batches(),None
+        if method=='batches.get':
+            from .batches import batch_view
+            return batch_view(params.batch_id),None
+        if method=='batches.resolve':
+            from .batches import resolve_item
+            return resolve_item(params.batch_id,params.item_id,params.skill_id),None
+        if method=='batches.create':
+            from .batches import create_batch,run_batch
+            options=RunOptions(**params.options.model_dump());options.validate()
+            def create_and_run(job):
+                batch=create_batch(params.files,options)
+                job['batch_id']=batch['batch_id']
+                self.progress(job,{'batch_id':batch['batch_id'],'stage':'batch','state':'queued'})
+                return run_batch(batch['batch_id'],cancelled=job['cancel'].is_set,on_event=lambda event:self.progress(job,event),runner=self.run)
+            return self.start_operation(create_and_run,kind='batch')
+        if method=='batches.run':
+            from .batches import load_batch,run_batch
+            load_batch(params.batch_id)
+            return self.start_operation(lambda job:run_batch(params.batch_id,analysis=params.analysis,item_id=params.item_id,cancelled=job['cancel'].is_set,on_event=lambda event:self.progress(job,event),runner=self.run),kind='batch',batch_id=params.batch_id)
         if method == 'settings.get':
             from .desktop_settings import get_settings
             return get_settings(), None
@@ -308,12 +384,15 @@ class DesktopServer:
             load_manifest(task)
             target = lambda job: self.resume(params.task_id, analysis=params.analysis,
                 cancelled=job['cancel'].is_set, on_event=lambda event:self.progress(job,event))
+        return self.start_operation(target,task_id=getattr(params,'task_id',None))
+
+    def start_operation(self,target,*,task_id=None,kind='task',batch_id=None):
         with self._state_lock:
             if self._closed:
                 raise RPCError('SHUTTING_DOWN','Server is shutting down')
             if any(job['state'] in {'queued','running','cancelling'} for job in self._jobs.values()):
                 raise RPCError('BUSY','One processing operation is already active')
-            job = {'operation_id':uuid.uuid4().hex,'task_id':getattr(params,'task_id',None),
+            job = {'operation_id':uuid.uuid4().hex,'task_id':task_id, 'kind':kind,'batch_id':batch_id,
                    'state':'queued','cancel':threading.Event(),'result':None,'error':None}
             thread = threading.Thread(target=self.work, args=(job,target), name='sonafolio-operation')
             job['thread'] = thread
@@ -324,11 +403,12 @@ class DesktopServer:
 
     @staticmethod
     def job_view(job):
-        return {key:job.get(key) for key in ('operation_id','task_id','state','result','error')}
+        return {key:job.get(key) for key in ('operation_id','task_id','batch_id','kind','state','result','error')}
 
     def progress(self, job, event):
         with self._state_lock:
             job['task_id'] = event.get('task_id',job['task_id'])
+            job['batch_id'] = event.get('batch_id',job.get('batch_id'))
         self.send({'type':'event','event':'task.progress','operation_id':job['operation_id'], 'data':event})
 
     def work(self, job, target):

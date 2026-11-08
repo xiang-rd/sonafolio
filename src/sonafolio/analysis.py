@@ -130,7 +130,7 @@ def cached_call(path: Path, instructions: str, content: str, schema: dict, allow
     raise RuntimeError("No evidence-validated LLM result")
 
 
-def analyze_recording(transcript_path: Path, *, skill_id: str | None = None, skills_dir: Path | None = None, prompt_path: Path | None = None, force: bool = False, dry_run: bool = False, chunk_chars: int = 14000, merge_max_tokens: int = 16384, call=request_json, analysis_directory: Path | None = None) -> dict:
+def analyze_recording(transcript_path: Path, *, skill_id: str | None = None, skills_dir: Path | None = None, prompt_path: Path | None = None, force: bool = False, dry_run: bool = False, chunk_chars: int = 14000, merge_max_tokens: int = 16384, call=request_json, analysis_directory: Path | None = None, catalog_path: Path | None = None, settings_override: dict | None = None, review_unknown: bool = False) -> dict:
     if not 1 <= merge_max_tokens <= 32768:
         raise ValueError("Final merge token limit must be between 1 and 32768")
     transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
@@ -141,17 +141,18 @@ def analyze_recording(transcript_path: Path, *, skill_id: str | None = None, ski
         raise ValueError("Transcript contains no text")
     chunks = make_chunks(records, chunk_chars)
     speaker_ids = {part["speaker"] for record in records for part in record["parts"] if part["speaker"] != "待确认"}
-    registry = SkillRegistry(skills_dir or (workspace_root() / "skills"))
+    registry = SkillRegistry.from_snapshot(json.loads(writable_path(catalog_path).read_text())) if catalog_path else SkillRegistry(skills_dir or (workspace_root() / "skills"))
     routes = registry.routes()
     enabled = {item["id"] for item in routes}
     if skill_id is not None and skill_id not in enabled:
         raise ValueError("Requested skill is not an enabled scene")
-    settings = load_settings()
+    from .llm import LLMSettings
+    settings = LLMSettings.model_validate(settings_override) if settings_override else load_settings()
     override = prompt_path.read_text(encoding="utf-8") if prompt_path else None
     digest = hashlib.sha256(transcript_path.read_bytes() + json.dumps({
         "skills": {name: value.digest for name, value in registry.loaded.items()},
         "settings": settings.model_dump(), "skill_override": skill_id,
-        "prompt_override": override, "chunk_chars": chunk_chars, "pipeline_version": 1,
+        "prompt_override": override, "chunk_chars": chunk_chars, "pipeline_version": 2, "review_unknown": review_unknown, "catalog_sha256": hashlib.sha256(writable_path(catalog_path).read_bytes()).hexdigest() if catalog_path else None,
     }, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
     from .tasks import task_for_artifact, index_analysis
     run = task_for_artifact(transcript_path)
@@ -216,7 +217,7 @@ def analyze_recording(transcript_path: Path, *, skill_id: str | None = None, ski
                 "reason": {"type": "string"},
                 "segment_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 12},
             }, "required": ["category", "tags", "reason", "segment_ids"]}
-            instruction = "对本段录音内容分类。只从下面配置的类目中选择，能确定子类目时选择子类目；不能确定则 unknown。给出片段编号依据和少量标签。说话人身份、声音人数不决定类目。\n" + json.dumps(routes, ensure_ascii=False)
+            instruction = "对本段录音内容分类。关键词仅说明意图，不是硬命中规则；结合适用与排除条件判断。只从下面配置的类目中选择，能确定子类目时选择子类目；不能确定则 unknown。给出片段编号依据和少量标签。说话人身份、声音人数不决定类目。\n" + json.dumps(routes, ensure_ascii=False)
             for index, chunk in enumerate(chunks):
                 artifact = cached_call(intermediate / f"route-{index:03d}.json", instruction, "\n".join(map(record_line, chunk)), schema,
                                        {item["id"] for item in chunk}, speaker_ids, settings.model_copy(update={"max_tokens": min(settings.max_tokens, 1200)}), call, force)
@@ -227,6 +228,9 @@ def analyze_recording(transcript_path: Path, *, skill_id: str | None = None, ski
         classification = {"category": skill_id, "tags": sorted({tag for item in classifications for tag in item["tags"]}),
                           "method": "configured_override" if not classifications else "all_chunks_hierarchical_vote", "chunks": classifications}
         write_json(intermediate / "classification.json", classification)
+        if review_unknown and skill_id=='unknown' and classifications:
+            write_json(status,{"state":"needs_review","stage":"classification","classification":classification})
+            return {"state":"needs_review","output_directory":str(version_directory),"category":"unknown","classification":classification}
         skill = registry.get(skill_id)
         write_json(version_directory / "scene.json", {
             "schema_version": 1, "selected": asdict(skill), "routes": routes,

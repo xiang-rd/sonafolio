@@ -1,7 +1,7 @@
 """Single-recording orchestration with durable attempts and content-checked reuse."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import hashlib
 from importlib.metadata import PackageNotFoundError, version
 import json
@@ -36,6 +36,9 @@ class RunOptions:
     skills_dir: str | None = None
     prompt: str | None = None
     merge_max_tokens: int = 16384
+    catalog: str | None = None
+    llm_settings: dict | None = None
+    review_unknown: bool = False
 
     def validate(self):
         if not math.isfinite(self.start) or self.start < 0 or (self.duration is not None and (not math.isfinite(self.duration) or self.duration <= 0)):
@@ -79,8 +82,8 @@ def stage_settings(stage: str, options: RunOptions) -> dict:
     if stage == 'analysis':
         from .llm import load_settings
         from .skills import SkillRegistry
-        registry = SkillRegistry(Path(options.skills_dir) if options.skills_dir else workspace_root() / 'skills')
-        return {'settings': load_settings().model_dump(), 'skills': {name: skill.digest for name, skill in registry.loaded.items()},
+        registry = SkillRegistry.from_snapshot(json.loads(writable_path(options.catalog).read_text())) if options.catalog else SkillRegistry(Path(options.skills_dir) if options.skills_dir else workspace_root() / 'skills')
+        return {'settings': options.llm_settings or load_settings().model_dump(), 'review_unknown':options.review_unknown, 'catalog_sha256':file_digest(writable_path(options.catalog)) if options.catalog else None, 'skills': {name: skill.digest for name, skill in registry.loaded.items()},
                 'skill': options.skill, 'prompt': file_digest(options.prompt) if options.prompt else None,
                 'mode': options.analysis, 'merge_max_tokens': options.merge_max_tokens}
     return {}
@@ -110,13 +113,37 @@ def reusable(attempt: dict, task: Path) -> bool:
     return True
 
 
+class ReviewRequired(Exception):
+    def __init__(self, output):self.output=output
+
+
 def run_pipeline(audio: Path, *, options: RunOptions | None = None, force: bool = False,
                  cancelled=lambda: False, on_event=lambda event: None, executor=default_executor) -> dict:
-    options = options or RunOptions()
+    options = replace(options) if options else RunOptions()
     options.validate()
     _, task = record_input(audio)
     with file_lock(task / '.pipeline.lock'):
         manifest = load_manifest(task)
+        from .skills import SkillRegistry
+        from .llm import load_settings
+        if options.catalog is None:
+            from .scenes import scene_root
+            with file_lock(scene_root()/'.scene.lock'):
+                registry=SkillRegistry(Path(options.skills_dir) if options.skills_dir else workspace_root()/'skills')
+                catalog={'schema_version':1,'skills':{key:asdict(value) for key,value in registry.loaded.items()}}
+        else:
+            catalog=json.loads(writable_path(options.catalog).read_text())
+            SkillRegistry.from_snapshot(catalog)
+        digest=hashlib.sha256(json.dumps(catalog,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+        path=writable_path(task/'catalogs'/(digest+'.json'));write_json(path,catalog)
+        options.catalog=path.relative_to(workspace_root()).as_posix()
+        options.llm_settings=options.llm_settings or load_settings().model_dump()
+        if options.prompt:
+            source=Path(options.prompt)
+            if not source.is_absolute():source=workspace_root()/source
+            content=source.read_bytes();key=hashlib.sha256(content).hexdigest()
+            target=writable_path(task/'catalogs'/(key+'.prompt.md'));target.write_bytes(content)
+            options.prompt=target.relative_to(workspace_root()).as_posix()
         manifest['state'] = 'running'
         manifest['options'] = asdict(options)
         manifest['error_type'] = None
@@ -160,7 +187,11 @@ def run_pipeline(audio: Path, *, options: RunOptions | None = None, force: bool 
             save_manifest(task, manifest)
             emit(name, 'running')
             try:
-                executor(name, inputs, options, output, cancelled, force)
+                result=executor(name, inputs, options, output, cancelled, force)
+                if isinstance(result,dict) and result.get('state')=='needs_review':
+                    attempt.update(state='needs_review',artifacts=artifact_hashes(output,task))
+                    save_manifest(task,manifest);emit(name,'needs_review')
+                    raise ReviewRequired(output)
                 if cancelled():
                     raise CancelledError('Task cancelled')
                 required = [filename] if filename else (['summary.json','summary.md','sources.md','scene.json'] if options.analysis=='cloud' else ['checkpoints/request-plan.json','checkpoints/outbound-text.md'])
@@ -172,6 +203,8 @@ def run_pipeline(audio: Path, *, options: RunOptions | None = None, force: bool 
                 save_manifest(task, manifest)
                 emit(name, 'completed')
                 return output / filename if filename else output
+            except ReviewRequired:
+                raise
             except BaseException as error:
                 attempt.update(state='cancelled' if isinstance(error, (CancelledError, KeyboardInterrupt)) else 'failed', error_type=type(error).__name__)
                 save_manifest(task, manifest)
@@ -189,6 +222,10 @@ def run_pipeline(audio: Path, *, options: RunOptions | None = None, force: bool 
             save_manifest(task, manifest)
             emit('pipeline', manifest['state'])
             return {'task_id': task.name, 'state': manifest['state'], 'run_directory': str(task), 'output_directory': str(result)}
+        except ReviewRequired as review:
+            manifest.update(state='needs_review',current_stage='analysis',latest_result=review.output.relative_to(task).as_posix())
+            save_manifest(task,manifest);emit('pipeline','needs_review')
+            return {'task_id':task.name,'state':'needs_review','run_directory':str(task),'output_directory':str(review.output)}
         except BaseException as error:
             manifest.update(state='cancelled' if isinstance(error, (CancelledError, KeyboardInterrupt)) else 'failed', error_type=type(error).__name__)
             save_manifest(task, manifest)
@@ -196,9 +233,10 @@ def run_pipeline(audio: Path, *, options: RunOptions | None = None, force: bool 
             raise
 
 
-def resume_pipeline(task_id: str, *, analysis: str | None = None, **kwargs) -> dict:
+def resume_pipeline(task_id: str, *, analysis: str | None = None, skill: str | None = None, **kwargs) -> dict:
     task = task_directory(task_id)
     options = RunOptions(**load_manifest(task).get('options', {}))
     if analysis is not None:
         options.analysis = analysis
+    if skill is not None:options.skill=skill
     return run_pipeline(managed_input(task), options=options, **kwargs)

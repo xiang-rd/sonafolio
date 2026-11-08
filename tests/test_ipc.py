@@ -75,6 +75,27 @@ class IPCTests(unittest.TestCase):
             time.sleep(.01)
         self.fail('No terminal operation event')
 
+    def test_persistent_batch_and_scene_authoring_protocol(self):
+        self.release.set()
+        accepted=self.request('batches.create',{'files':[str(self.audio)],'options':{'analysis':'none','refine':False}})
+        self.assertTrue(accepted['ok'])
+        finished=self.wait_finished();identifier=finished['data']['result']['batch_id']
+        self.assertEqual(self.request('batches.list')['result']['items'][0]['batch_id'],identifier)
+        detail=self.request('batches.get',{'batch_id':identifier})['result']
+        task_id=detail['items'][0]['task_id']
+        self.assertEqual(self.request('audio.info',{'task_id':task_id})['result']['path'],str(self.root/'data/runs'/task_id/'input/recording.wav'))
+        self.assertIn(identifier,self.request('tasks.get',{'task_id':task_id})['result']['batch_ids'])
+        scene=self.request('scenes.list')['result']['items'][0]
+        version=scene.pop('version');scene.pop('digest');scene['name']='编辑后的场景'
+        saved=self.request('scenes.save',{'scene':scene,'expected_version':version})
+        self.assertTrue(saved['ok'],saved)
+        self.assertNotEqual(saved['result']['version'],version)
+        self.assertTrue(self.request('scenes.preview',{'scene':scene})['ok'])
+        self.assertEqual(len(self.request('scenes.history',{'scene_id':scene['id']})['result']['items']),2)
+        restarted=DesktopServer(io.StringIO(),diagnostics=io.StringIO());self.addCleanup(restarted.close)
+        value,_=restarted.dispatch('batches.get',__import__('sonafolio.ipc',fromlist=['BatchParams']).BatchParams(batch_id=identifier))
+        self.assertEqual(value['items'][0]['state'],'preview_only')
+
     def test_handshake_schema_and_bad_requests_are_recoverable_and_do_not_echo_input(self):
         self.server.ready()
         response=self.request('hello')

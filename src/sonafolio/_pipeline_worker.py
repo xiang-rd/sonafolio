@@ -25,7 +25,7 @@ def execute(name: str, inputs: dict, options: dict, output: Path, force: bool = 
     if name == 'analysis':
         from .analysis import analyze_recording
         return analyze_recording(Path(inputs['transcript']), skill_id=options['skill'], skills_dir=Path(options['skills_dir']) if options['skills_dir'] else None,
-                                 prompt_path=Path(options['prompt']) if options['prompt'] else None, dry_run=options['analysis']=='preview', merge_max_tokens=options['merge_max_tokens'], analysis_directory=output, force=force)
+                                 prompt_path=Path(options['prompt']) if options['prompt'] else None, dry_run=options['analysis']=='preview', merge_max_tokens=options['merge_max_tokens'], analysis_directory=output, force=force, catalog_path=Path(options['catalog']) if options.get('catalog') else None, settings_override=options.get('llm_settings'), review_unknown=options.get('review_unknown',False))
     raise ValueError('Unknown pipeline stage')
 
 

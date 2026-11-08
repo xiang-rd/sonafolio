@@ -71,6 +71,5 @@ def save_settings(*, llm=None, data_dir=None, api_key=None, appearance=None):
 
 
 def scene_catalog():
-    from .skills import SkillRegistry
-    registry=SkillRegistry(workspace_root()/'skills')
-    return {'items':[asdict(skill) for skill in registry.loaded.values() if skill.enabled]}
+    from .scenes import list_scenes
+    return list_scenes()

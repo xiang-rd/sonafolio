@@ -86,6 +86,22 @@ class SkillTests(unittest.TestCase):
                 self.assertEqual(len(calls),count_before+1)
                 self.assertEqual(json.loads(route.read_text())['result']['reason'],'技术面试')
 
+    def test_unknown_batch_route_waits_for_confirmation_without_extracting(self):
+        with tempfile.TemporaryDirectory(dir=ROOT/'.tmp') as temporary:
+            root=Path(temporary);path=root/'data/runs/example/alignment/example/transcript.json'
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps({'source_sha256':'test-source','diarization':{'state':'completed'},'segments':[
+                {'id':'seg-1','start':0,'end':1,'text':'无法确定的混合场景','speaker_id':'SPEAKER_00'}]}))
+            calls=[]
+            def fake(instructions,content,schema,**kwargs):
+                calls.append(schema)
+                self.assertIn('category',schema['properties'],'Ambiguous routing must not trigger extraction')
+                return {'category':'unknown','tags':[],'reason':'无法确定','segment_ids':['seg-1']},{'usage':{}}
+            with patch.dict(os.environ,{'SONAFOLIO_WORKSPACE':str(root)}):result=analyze_recording(path,call=fake,review_unknown=True)
+            self.assertEqual(result['state'],'needs_review');self.assertEqual(len(calls),1)
+            self.assertFalse((Path(result['output_directory'])/'summary.json').exists())
+            self.assertTrue((Path(result['output_directory'])/'checkpoints/classification.json').is_file())
+
     def test_cyclic_custom_skills_are_rejected(self):
         (ROOT/'.tmp').mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=ROOT/'.tmp') as temporary:

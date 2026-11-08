@@ -9,8 +9,6 @@ from pathlib import Path
 import re
 import tomllib
 
-from jinja2 import StrictUndefined
-from jinja2.sandbox import SandboxedEnvironment
 from jsonschema import Draft202012Validator
 
 BUILTINS = Path(__file__).parent / "builtin_skills"
@@ -27,6 +25,11 @@ class Skill:
     schema: dict
     template: str
     digest: str
+    name: str = ""
+    keywords: tuple[str, ...] = ()
+    use_when: str = ""
+    not_when: str = ""
+    example: dict | None = None
 
 
 def asset(directory: Path, name: str) -> Path:
@@ -73,8 +76,40 @@ class SkillRegistry:
                     raise ValueError(f"Duplicate skill ID: {identifier}")
                 seen.add(identifier)
                 self.entries[identifier] = (manifest.parent, data)
+        self.scenes = {}
+        if custom_root is not None:
+            for path in sorted(custom_root.glob("*/scene.json")):
+                path=asset(custom_root,path.relative_to(custom_root).as_posix())
+                value=json.loads(path.read_text(encoding="utf-8"))
+                if value.get('protocol_version')!=2:raise ValueError('Unsupported scene protocol')
+                from .scenes import validate_scene
+                scene,_=validate_scene(value['scene'])
+                if scene.id in self.scenes:raise ValueError('Duplicate scene ID')
+                if scene.id in self.entries and self.entries[scene.id][0]!=path.parent and self.entries[scene.id][0].is_relative_to(custom_root):
+                    raise ValueError('Duplicate custom scene ID')
+                digest=hashlib.sha256(json.dumps(scene.model_dump(by_alias=True),sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+                self.scenes[scene.id]=Skill(scene.id,value['version'],scene.description,scene.parent,scene.enabled,scene.prompt,scene.output_schema,scene.template,digest,scene.name,tuple(scene.keywords),scene.use_when,scene.not_when,scene.example)
+            self.loaded.update(self.scenes)
         for identifier in self.entries:
             self.get(identifier)
+        for scene in self.scenes.values():
+            seen={scene.id};parent=scene.parent
+            while parent:
+                if parent in seen:raise ValueError('Cyclic scene hierarchy')
+                seen.add(parent);parent=self.get(parent).parent
+
+
+    @classmethod
+    def from_snapshot(cls, value: dict):
+        registry=cls.__new__(cls);registry.entries={};registry.scenes={};registry.loaded={}
+        for identifier,data in value['skills'].items():
+            item=dict(data);item['keywords']=tuple(item.get('keywords',()))
+            skill=Skill(**item)
+            if skill.id!=identifier:raise ValueError('Invalid catalog snapshot')
+            Draft202012Validator.check_schema(skill.schema)
+            registry.loaded[identifier]=skill
+        if 'unknown' not in registry.loaded or not registry.loaded['unknown'].enabled:raise ValueError('Catalog requires unknown fallback')
+        return registry
 
     def get(self, identifier: str, resolving: tuple = ()) -> Skill:
         if identifier in resolving:
@@ -103,13 +138,11 @@ class SkillRegistry:
         return skill
 
     def routes(self) -> list[dict]:
-        return [{"id": skill.id, "parent": skill.parent, "description": skill.description}
+        return [{"id": skill.id, "parent": skill.parent, "description": skill.description,
+                 "keywords":list(skill.keywords),"use_when":skill.use_when,"not_when":skill.not_when}
                 for skill in self.loaded.values() if skill.enabled]
 
 
 def render_summary(skill: Skill, result: dict, metadata: dict) -> str:
-    roles = {"candidate": "候选人", "interviewer": "面试官", "doctor": "医生", "patient": "患者",
-             "courier": "快递员", "recipient": "收件人", "other": "其他", "unknown": "未知"}
-    environment = SandboxedEnvironment(undefined=StrictUndefined, autoescape=False)
-    environment.globals.update(refs=lambda ids: "、".join(f"[{item}](sources.md#{item})" for item in ids), role_name=lambda role: roles.get(role, role))
-    return environment.from_string(skill.template).render(result=result, metadata=metadata).strip() + "\n"
+    from .scenes import bounded_render
+    return bounded_render(skill.template,result,metadata)

@@ -77,6 +77,25 @@ class TaskPipelineTests(unittest.TestCase):
                 (output / 'sources.md').write_text('<a id="s1"></a>')
         return {'output_directory':str(output)}
 
+    def test_review_required_is_durable_and_manual_choice_only_repeats_analysis(self):
+        self.options.analysis='cloud';self.options.review_unknown=True
+        def ambiguous(stage,inputs,options,output,*args):
+            if stage=='analysis':
+                write_json(output/'classification.json',{'category':'unknown'})
+                return {'state':'needs_review'}
+            return self.fake_stage(stage,inputs,options,output,*args)
+        result=run_pipeline(self.audio,options=self.options,executor=ambiguous)
+        self.assertEqual(result['state'],'needs_review')
+        task=Path(result['run_directory']);manifest=load_manifest(task)
+        self.assertEqual(manifest['state'],'needs_review')
+        self.assertEqual(manifest['stages']['analysis'][-1]['state'],'needs_review')
+        self.assertEqual(manifest['analysis_versions'],[])
+        frozen=manifest['options']['catalog'];self.assertTrue((self.root/frozen).is_relative_to(task))
+        result=resume_pipeline(task.name,skill='interview.technical',executor=self.fake_stage)
+        self.assertEqual(result['state'],'completed')
+        self.assertEqual(self.calls.count('asr'),1)
+        self.assertEqual(self.calls.count('analysis'),1)
+
     def test_import_title_and_paths_are_stable_and_originals_are_protected(self):
         before = fingerprint(self.audio)
         _, task = record_input(self.audio)
