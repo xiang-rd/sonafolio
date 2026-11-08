@@ -188,3 +188,5 @@ git diff --check
 源码计划托管 GitHub，运行包通过 GitHub Releases 分发；当前未关联远程或发布 release。现有 `.app` 仍为本地开发构建。公开发行前需选择许可证、检查模型／依赖再分发条款、准备发行说明和校验和，并完成 Developer ID 签名／公证及冷启动安装验收。不要把本地工作区、密钥、模型或私有录音打进发行资产。
 
 模型下载临时文件位于所选缓存目录 `model-downloads/<组件>/<revision>/`，取消后保留供重试。组件安装的历史备份位于所选模型目录 `.history/`；不会自动删除旧安装。全量校验可能需要读取较大的权重文件。下载／迁移与录音推理互斥；数据目录复制后，任务恢复会从新任务内解析目录／Prompt 快照。运行包升级后重新打开应用，无需重装 Python 或依赖。
+
+“本地模型”页可选择说话人计算设备：自动模式在 Apple GPU（MPS）可用时使用 GPU，否则 CPU；CPU 可手动指定。CLI 使用工作区 `[processing].speaker_device` 默认值，也可用 `run --speaker-device` 或 `diarize --device` 明确覆盖。批次取消后修改设备，再继续处理会复用 ASR，只重新计算依赖该设备的阶段。字符对齐目前仍默认 CPU。

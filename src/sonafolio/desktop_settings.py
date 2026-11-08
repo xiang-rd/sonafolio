@@ -10,6 +10,7 @@ from .llm import LLMSettings, load_settings
 from .paths import workspace_root, writable_path, apply_cache_environment
 from .storage_config import storage_roots
 from .tasks import data_root
+from .devices import configured_speaker_device
 
 
 def get_settings():
@@ -23,6 +24,7 @@ def get_settings():
     return {'workspace':str(root),'llm':load_settings().model_dump(),'api_key_configured':key.is_file() and key.stat().st_size>0,
             'hf_token_configured':hf.is_file() and hf.stat().st_size>0,
             'model_files':{'asr':ready['asr'] and ready['vad'],'diarization':ready['diarization'],'alignment':ready['alignment']},
+            'processing':{'speaker_device':configured_speaker_device()},
             'storage':{name:path.relative_to(root).as_posix() for name,path in roots.items()},
             'appearance':tomllib.loads(writable_path('sonafolio.toml').read_text(encoding='utf-8')).get('desktop',{}).get('appearance','dark') if writable_path('sonafolio.toml').is_file() else 'dark',
             'paths':{name.removesuffix('_dir'):str(path) for name,path in roots.items()}}
@@ -38,7 +40,7 @@ def _table(name, values):
     return '\n'.join(lines)+'\n\n'
 
 
-def save_settings(*, llm=None, data_dir=None, api_key=None, appearance=None, models_dir=None, cache_dir=None, hf_token=None):
+def save_settings(*, llm=None, data_dir=None, api_key=None, appearance=None, models_dir=None, cache_dir=None, hf_token=None, speaker_device=None):
     path=writable_path('sonafolio.toml')
     original=path.read_text(encoding='utf-8') if path.exists() else ''
     tables=tomllib.loads(original)
@@ -51,6 +53,9 @@ def save_settings(*, llm=None, data_dir=None, api_key=None, appearance=None, mod
     if directories:
         storage_roots(workspace_root(),directories)
         updates['storage']={**tables.get('storage',{}),**directories}
+    if speaker_device is not None:
+        if speaker_device not in {'auto','cpu','mps'}:raise ValueError('Unsupported speaker device')
+        updates['processing']={**tables.get('processing',{}),'speaker_device':speaker_device}
     if appearance is not None:
         if appearance not in {'light','dark','system'}:raise ValueError('Unknown appearance')
         updates['desktop']={**tables.get('desktop',{}),'appearance':appearance}

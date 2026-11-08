@@ -14,6 +14,7 @@ from typing import Literal
 from .audio import fingerprint, record_input
 from .paths import workspace_root, writable_path, write_json, model_path
 from .processes import CancelledError, run_stage_process
+from .devices import speaker_device
 from .tasks import file_lock, load_manifest, managed_input, now, save_manifest, task_directory
 
 PIPELINE_VERSION = 1
@@ -27,7 +28,7 @@ class RunOptions:
     duration: float | None = None
     threads: int = 4
     asr_device: Literal['auto','cpu'] = 'auto'
-    speaker_device: Literal['cpu','mps','cuda'] = 'cpu'
+    speaker_device: Literal['auto','cpu','mps','cuda'] = 'auto'
     num_speakers: int | None = None
     refine: bool = True
     alignment_device: Literal['cpu','mps','cuda'] = 'cpu'
@@ -45,7 +46,7 @@ class RunOptions:
             raise ValueError('Invalid audio range')
         if self.threads < 1 or (self.num_speakers is not None and self.num_speakers < 1):
             raise ValueError('Threads and speaker count must be positive')
-        if self.asr_device not in {'auto','cpu'} or self.speaker_device not in {'cpu','mps','cuda'} or self.alignment_device not in {'cpu','mps','cuda'}:
+        if self.asr_device not in {'auto','cpu'} or self.speaker_device not in {'auto','cpu','mps','cuda'} or self.alignment_device not in {'cpu','mps','cuda'}:
             raise ValueError('Unsupported model device')
         if self.analysis not in {'none','preview','cloud'} or not 1 <= self.merge_max_tokens <= 32768:
             raise ValueError('Invalid analysis mode or token budget')
@@ -74,7 +75,7 @@ def stage_settings(stage: str, options: RunOptions) -> dict:
     if stage == 'diarization':
         from .diarization import MODEL_DIRECTORY
         return {'model': file_digest(model_path(Path(MODEL_DIRECTORY) / 'sonafolio-model.json')), 'range': [options.start, options.duration],
-                'device': options.speaker_device, 'speakers': options.num_speakers, 'backend': package_version('pyannote.audio')}
+                'device': speaker_device(options.speaker_device), 'torch':package_version('torch'), 'speakers': options.num_speakers, 'backend': package_version('pyannote.audio')}
     if stage == 'refinement':
         from .refinement import MODEL_DIR
         return {'model': file_digest(model_path(Path(MODEL_DIR) / 'sonafolio-model.json')), 'device': options.alignment_device,
@@ -92,7 +93,9 @@ def stage_settings(stage: str, options: RunOptions) -> dict:
 def default_executor(stage: str, inputs: dict, options: RunOptions, output: Path, cancelled, force: bool = False) -> dict:
     request = output / 'request.json'
     response = output / 'response.json'
-    write_json(request, {'stage': stage, 'inputs': inputs, 'options': asdict(options), 'output': str(output), 'force': force})
+    wire_options=asdict(options)
+    if stage=='diarization':wire_options['speaker_device']=speaker_device(options.speaker_device)
+    write_json(request, {'stage': stage, 'inputs': inputs, 'options': wire_options, 'output': str(output), 'force': force})
     run_stage_process([sys.executable, '-B', '-m', 'sonafolio._pipeline_worker', str(request), str(response)], output / 'stage.log', cancelled)
     return json.loads(response.read_text(encoding='utf-8'))
 
@@ -185,7 +188,7 @@ def run_pipeline(audio: Path, *, options: RunOptions | None = None, force: bool 
             attempts.append(attempt)
             manifest['current_stage'] = name
             save_manifest(task, manifest)
-            emit(name, 'running')
+            emit(name, 'running', **({'device':settings['device']} if settings.get('device') else {}))
             try:
                 result=executor(name, inputs, options, output, cancelled, force)
                 if isinstance(result,dict) and result.get('state')=='needs_review':
@@ -233,7 +236,7 @@ def run_pipeline(audio: Path, *, options: RunOptions | None = None, force: bool 
             raise
 
 
-def resume_pipeline(task_id: str, *, analysis: str | None = None, skill: str | None = None, **kwargs) -> dict:
+def resume_pipeline(task_id: str, *, analysis: str | None = None, skill: str | None = None, speaker_device: str | None = None, **kwargs) -> dict:
     task = task_directory(task_id)
     options = RunOptions(**load_manifest(task).get('options', {}))
     for field in ('catalog','prompt'):
@@ -244,4 +247,5 @@ def resume_pipeline(task_id: str, *, analysis: str | None = None, skill: str | N
     if analysis is not None:
         options.analysis = analysis
     if skill is not None:options.skill=skill
+    if speaker_device is not None:options.speaker_device=speaker_device
     return run_pipeline(managed_input(task), options=options, **kwargs)

@@ -24,7 +24,7 @@ def probe(audio: Path = typer.Argument(..., exists=True, dir_okay=False)):
 @app.command()
 def transcribe(
     audio: Path = typer.Argument(..., exists=True, dir_okay=False),
-    model: Path = typer.Option(..., exists=True, dir_okay=False, help="Explicit local whisper.cpp model file"),
+    model: Path = typer.Option(..., dir_okay=False, help="Explicit local whisper.cpp model file"),
     start: float = typer.Option(0, min=0),
     duration: float | None = typer.Option(None, min=0.01, help="Seconds to process; omit for the rest of the file"),
     threads: int = typer.Option(4, min=1),
@@ -104,12 +104,13 @@ def diarize(
     audio: Path = typer.Argument(..., exists=True, dir_okay=False),
     start: float = typer.Option(0, min=0),
     duration: float | None = typer.Option(None, min=0.01),
-    device: str = typer.Option("cpu", help="cpu, mps or cuda; device support must be verified"),
+    device: str | None = typer.Option(None, help="Workspace preference by default; auto prefers Apple GPU, or cpu/mps/cuda"),
     num_speakers: int | None = typer.Option(None, min=1, help="Omit to estimate any number of speakers"),
 ):
     """Cluster speakers across the whole selected range; role inference is separate."""
     from .diarization import diarize_local
-    result = diarize_local(audio, start=start, duration=duration, device=device, num_speakers=num_speakers)
+    from .devices import configured_speaker_device
+    result = diarize_local(audio, start=start, duration=duration, device=device or configured_speaker_device(), num_speakers=num_speakers)
     typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
 
 
@@ -175,7 +176,7 @@ def run(
     duration: float | None = typer.Option(None, min=0.01),
     threads: int = typer.Option(4, min=1),
     asr_device: str = typer.Option("auto"),
-    speaker_device: str = typer.Option("cpu"),
+    speaker_device: str | None = typer.Option(None),
     num_speakers: int | None = typer.Option(None, min=1),
     refine: bool = typer.Option(True, "--refine/--no-refine"),
     alignment_device: str = typer.Option("cpu"),
@@ -188,6 +189,8 @@ def run(
 ):
     """Import one recording and run/resume ASR, speakers, alignment and analysis."""
     from .pipeline import RunOptions, run_pipeline
+    from .devices import configured_speaker_device
+    speaker_device=speaker_device or configured_speaker_device()
     options = RunOptions(model=str(model), vad_model=str(vad_model), start=start, duration=duration, threads=threads,
                          asr_device=asr_device, speaker_device=speaker_device, num_speakers=num_speakers,
                          refine=refine, alignment_device=alignment_device, analysis=analysis, skill=skill,

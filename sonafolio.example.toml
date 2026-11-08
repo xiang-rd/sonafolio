@@ -14,3 +14,7 @@ thinking = false
 data_dir = "data"
 models_dir = ".models"
 cache_dir = ".cache"
+
+[processing]
+# auto prefers an available Apple GPU on macOS; otherwise CPU.
+speaker_device = "auto"

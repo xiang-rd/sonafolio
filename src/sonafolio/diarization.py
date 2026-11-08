@@ -95,6 +95,8 @@ def normalize_speakers(turns: list[dict], exclusive: list[dict]) -> tuple[list[d
 
 
 def diarize_local(audio: Path, *, start: float = 0, duration: float | None = None, device: str = "cpu", num_speakers: int | None = None, output_directory: Path | None = None) -> dict:
+    from .devices import speaker_device
+    device=speaker_device(device)
     if device not in {"cpu", "mps", "cuda"}:
         raise ValueError("device must be cpu, mps or cuda")
     if num_speakers is not None and num_speakers < 1:

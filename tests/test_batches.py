@@ -63,8 +63,10 @@ class BatchTests(unittest.TestCase):
         item=load_batch(batch['batch_id'])['items'][1]
         calls=[]
         def finish(audio,*,options,**kwargs):calls.append(options.analysis);return {'state':'completed'}
-        run_batch(batch['batch_id'],item_id=item['item_id'],analysis='cloud',runner=finish)
+        run_batch(batch['batch_id'],item_id=item['item_id'],analysis='cloud',speaker_device='mps',runner=finish)
         value=load_batch(batch['batch_id'])
+        self.assertEqual(value['items'][1]['speaker_device_override'],'mps')
+        self.assertEqual(value['options']['speaker_device'],'auto')
         self.assertEqual(calls,['cloud']);self.assertEqual(value['options']['analysis'],'preview')
         self.assertEqual([i['state'] for i in value['items']],['preview_only','completed','preview_only'])
 

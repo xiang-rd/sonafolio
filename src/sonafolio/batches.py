@@ -76,7 +76,7 @@ def batch_view(identifier: str) -> dict:
     return result
 
 
-def run_batch(identifier: str, *, cancelled=lambda:False, on_event=lambda event:None, runner=run_pipeline, analysis: str | None = None, item_id: str | None = None) -> dict:
+def run_batch(identifier: str, *, cancelled=lambda:False, on_event=lambda event:None, runner=run_pipeline, analysis: str | None = None, item_id: str | None = None, speaker_device: str | None = None) -> dict:
     directory=batch_path(identifier)
     with file_lock(directory/'.batch.lock'):
         value=load_batch(identifier)
@@ -93,6 +93,10 @@ def run_batch(identifier: str, *, cancelled=lambda:False, on_event=lambda event:
             else:value['options']['analysis']=analysis
             for item in value['items']:
                 if (not item_id or item['item_id']==item_id) and item['state']=='preview_only':item['state']='queued'
+        if speaker_device is not None:
+            if speaker_device not in {'auto','cpu','mps','cuda'}:raise ValueError('Invalid speaker device')
+            if selected is not None:selected['speaker_device_override']=speaker_device
+            else:value['options']['speaker_device']=speaker_device
         options=RunOptions(**value['options']);options.validate()
         value['state']='importing';save_batch(value)
         def emit(stage,state,item=None,**extra):
@@ -125,6 +129,7 @@ def run_batch(identifier: str, *, cancelled=lambda:False, on_event=lambda event:
                 item_options=RunOptions(**asdict(options))
                 if item.get('skill_override'):item_options.skill=item['skill_override']
                 if item.get('analysis_override'):item_options.analysis=item['analysis_override']
+                if item.get('speaker_device_override'):item_options.speaker_device=item['speaker_device_override']
                 def progress(event):
                     on_event({**event,'batch_id':identifier,'item_id':item['item_id']})
                 try:

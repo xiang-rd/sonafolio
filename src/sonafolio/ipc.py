@@ -64,6 +64,7 @@ class RunParams(Params):
 
 class ResumeParams(TaskParams):
     analysis: Literal['none', 'preview', 'cloud'] | None = None
+    speaker_device: Literal['auto','cpu','mps','cuda'] | None = None
 
 
 class RenameParams(TaskParams):
@@ -86,6 +87,7 @@ class SettingsParams(Params):
     data_dir: str | None = None
     api_key: str | None = None
     hf_token: str | None = None
+    speaker_device: Literal['auto','cpu','mps'] | None = None
 
 
 class ModelParams(Params):
@@ -119,6 +121,7 @@ class BatchParams(Params):
     batch_id: str = Field(pattern=r'^[a-f0-9]{32}$')
 
 class BatchRunParams(BatchParams):
+    speaker_device: Literal['auto','cpu','mps','cuda'] | None = None
     item_id: str | None = Field(default=None,pattern=r'^[a-f0-9]{32}$')
     analysis: Literal['none','preview','cloud'] | None = None
 
@@ -337,7 +340,7 @@ class DesktopServer:
         if method=='batches.run':
             from .batches import load_batch,run_batch
             load_batch(params.batch_id)
-            return self.start_operation(lambda job:run_batch(params.batch_id,analysis=params.analysis,item_id=params.item_id,cancelled=job['cancel'].is_set,on_event=lambda event:self.progress(job,event),runner=self.run),kind='batch',batch_id=params.batch_id)
+            return self.start_operation(lambda job:run_batch(params.batch_id,analysis=params.analysis,item_id=params.item_id,speaker_device=params.speaker_device,cancelled=job['cancel'].is_set,on_event=lambda event:self.progress(job,event),runner=self.run),kind='batch',batch_id=params.batch_id)
         if method == 'settings.get':
             from .desktop_settings import get_settings
             return get_settings(), None
@@ -405,7 +408,7 @@ class DesktopServer:
         else:
             task = task_directory(params.task_id)
             load_manifest(task)
-            target = lambda job: self.resume(params.task_id, analysis=params.analysis,
+            target = lambda job: self.resume(params.task_id, analysis=params.analysis, **({'speaker_device':params.speaker_device} if params.speaker_device is not None else {}),
                 cancelled=job['cancel'].is_set, on_event=lambda event:self.progress(job,event))
         return self.start_operation(target,task_id=getattr(params,'task_id',None))
 
