@@ -77,6 +77,13 @@ class StorageModelTests(unittest.TestCase):
         target.write_bytes(b'ab')
         with patch('httpx.stream',return_value=Full()):fetch_file('https://example.invalid/file',target,entry)
         self.assertEqual(target.read_bytes(),b'abcdef')
+        target.write_bytes(b'oversized corrupt cache')
+        with patch('httpx.stream',return_value=Full()) as request:
+            fetch_file('https://example.invalid/file',target,entry)
+            self.assertNotIn('Range',request.call_args.kwargs['headers'])
+        with patch('httpx.stream') as request:
+            fetch_file('https://example.invalid/file',target,{'sha256':entry['sha256'],'size':None})
+            request.assert_not_called()
         class Wrong(Full):
             def iter_bytes(self,*args):yield b'xxxxxx'
         target.write_bytes(b'ab')

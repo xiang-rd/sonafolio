@@ -98,6 +98,9 @@ def fetch_file(url, target, entry, *, token=None, cancelled=lambda:False, progre
     import httpx
     target=writable_path(target);target.parent.mkdir(parents=True,exist_ok=True)
     offset=target.stat().st_size if target.exists() else 0
+    if offset and entry.get('size') is None and digest_file(target,entry,cancelled):return
+    if entry.get('size') is not None and offset>entry['size']:
+        target.unlink();offset=0
     if entry.get('size') is not None and offset==entry['size']:
         if digest_file(target,entry,cancelled):return
         target.unlink();offset=0
