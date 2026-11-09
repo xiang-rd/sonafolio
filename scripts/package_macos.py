@@ -11,13 +11,14 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 MACHO = {bytes.fromhex(x) for x in ('feedface', 'feedfacf', 'cefaedfe', 'cffaedfe', 'cafebabe', 'bebafeca', 'cafebabf', 'bfbafeca')}
-OPENING = """声笺 · Sonafolio — macOS 测试版
+OPENING = """声笺 · Sonafolio
 
 要求：Apple Silicon（M 系列），macOS 14 或更高版本。
 此包使用 ad-hoc 临时签名，没有 Developer ID 身份，也没有 Apple 公证。
 首次打开可能被 macOS 拦截，不能保证只有普通的下载确认提示。
 
-1. 解压 ZIP，将 Sonafolio.app 拖入“应用程序”，然后尝试打开。
+1. 打开 DMG，将 Sonafolio.app 拖入 Applications（应用程序），
+   完成复制后推出磁盘映像，再从“应用程序”打开声笺。
 2. 如果提示无法验证开发者或无法检查恶意软件，关闭提示。
 3. 打开“系统设置 → 隐私与安全”，找到 Sonafolio，点击“仍要打开”，
    再按系统要求确认。仅在确认下载来源可信时这样操作。
@@ -27,7 +28,7 @@ OPENING = """声笺 · Sonafolio — macOS 测试版
    运行包不包含用户录音、ASR／说话人模型或 API 凭据。
    依赖自身的公共样例与资源可能随包附带。
 
-同目录 SHA256SUMS.txt 可用于检查 ZIP 是否传输完整：
+同目录 SHA256SUMS.txt 可用于检查 DMG 是否传输完整：
   shasum -a 256 -c SHA256SUMS.txt
 校验值不代表 Apple 认证；请从项目可信发布渠道同时获取文件和校验值。
 本测试版不代表 Windows／Intel Mac 支持或全新机器验收已经完成。
@@ -65,7 +66,7 @@ def audit(app):
 
 def package(source):
     if platform.system() != 'Darwin':
-        raise ValueError('Packaging requires macOS codesign and ditto')
+        raise ValueError('Packaging requires macOS codesign, ditto and hdiutil')
     source = source.resolve(strict=True)
     if not source.is_relative_to(ROOT) or source.suffix != '.app':
         raise ValueError('Source must be an .app inside this workspace')
@@ -82,7 +83,7 @@ def package(source):
     version = info['CFBundleShortVersionString']
     if not all(c.isalnum() or c in '.-' for c in version):
         raise ValueError('Invalid version')
-    name = f'Sonafolio-{version}-dev-macos-arm64'
+    name = f'Sonafolio-{version}-macos-arm64'
     output = ROOT/'dist/releases'
     output.mkdir(parents=True, exist_ok=True)
     if not output.resolve().is_relative_to(ROOT):
@@ -104,14 +105,26 @@ def package(source):
             '--identifier', info['CFBundleIdentifier'], str(app))
         run('/usr/bin/codesign', '--verify', '--deep', '--strict', str(app))
         (payload/'FIRST-OPEN.txt').write_text(OPENING, encoding='utf-8')
-        archive = stage/(name+'.zip')
-        run('/usr/bin/ditto', '-c', '-k', '--keepParent', '--noextattr', '--norsrc', str(payload), str(archive))
-        # Verify the distributed bytes, not only the pre-archive directory.
-        extracted = stage/'verify'
-        run('/usr/bin/ditto', '-x', '-k', str(archive), str(extracted))
-        restored = extracted/name/'Sonafolio.app'
-        audit(restored)
-        run('/usr/bin/codesign', '--verify', '--deep', '--strict', str(restored))
+        # This install shortcut is intentionally outside the audited app bundle.
+        (payload/'Applications').symlink_to('/Applications', target_is_directory=True)
+        archive = stage/(name+'.dmg')
+        run('/usr/bin/hdiutil', 'create', '-srcfolder', str(payload), '-volname',
+            'Sonafolio', '-format', 'UDZO', str(archive))
+        run('/usr/bin/hdiutil', 'verify', str(archive))
+        # Inspect the final read-only filesystem, not only the source directory.
+        mounted = stage/'mounted'
+        mounted.mkdir()
+        run('/usr/bin/hdiutil', 'attach', '-readonly', '-nobrowse',
+            '-mountpoint', str(mounted), str(archive))
+        try:
+            restored = mounted/'Sonafolio.app'
+            audit(restored)
+            run('/usr/bin/codesign', '--verify', '--deep', '--strict', str(restored))
+            if not (mounted/'Applications').is_symlink() or (mounted/'Applications').readlink() != Path('/Applications'):
+                raise ValueError('Missing Applications install shortcut')
+            run('/usr/bin/cmp', str(payload/'FIRST-OPEN.txt'), str(mounted/'FIRST-OPEN.txt'))
+        finally:
+            run('/usr/bin/hdiutil', 'detach', str(mounted))
         with archive.open('rb') as stream:
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         assets = stage/'assets'
@@ -127,7 +140,7 @@ def package(source):
         }, ensure_ascii=False, indent=2)+'\n')
         assets.rename(destination)
     print(f'Created local development assets: {destination}')
-    print(f'Ad-hoc signed {len(binaries)} Mach-O files; extracted archive signature verified.')
+    print(f'Ad-hoc signed {len(binaries)} Mach-O files; read-only disk image and app signature verified.')
     print('Not notarized. Gatekeeper may block first launch. Nothing uploaded.')
 
 
