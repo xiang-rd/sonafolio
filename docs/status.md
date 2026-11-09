@@ -108,4 +108,6 @@ Mac 设备选择：历史说话人基线使用 MPS，初版统一管线默认 CP
 
 GitHub 接入：2026-11-09 用户提供 `xiang-rd/sonafolio` 仓库，检查为空后关联本地 `main`。本轮仅推送源码，不创建标签或 Release。发布标题为“声笺 v0.1.0”、拟用标签 `v0.1.0`；发布说明已按用户要求去掉录音时长及整个“数据与验证”部分，其余正文与附件仍待最终确认。
 
-DMG 发行迭代：用户确认首版改用 `Sonafolio-0.1.0-macos-arm64.dmg`，标题“声笺 v0.1.0”，标签 `v0.1.0`，Pre-release。打包器增加 Applications 快捷方式、压缩只读磁盘映像、映像校验、挂载后的应用签名与说明文件验证；旧 ZIP 保留。发布正文不包含录音时长或“数据与验证”部分；附件仅 DMG、SHA256SUMS.txt、FIRST-OPEN.txt，源码与私有运行目录分离。
+DMG 发行迭代：用户确认首版改用 `Sonafolio-0.1.0-macos-arm64.dmg`，标题“声笺 v0.1.0”，标签 `v0.1.0`，Pre-release。打包器增加 Applications 快捷方式、压缩只读磁盘映像、映像校验、挂载后的应用签名和 Applications 快捷方式验证；首次打开说明作为独立附件提供；旧 ZIP 保留。发布正文不包含录音时长或“数据与验证”部分；附件仅 DMG、SHA256SUMS.txt、FIRST-OPEN.txt，源码与私有运行目录分离。
+
+DMG 实际验证完成：448 个 Mach-O 文件临时签名、`hdiutil verify`、只读挂载后的完整应用签名及 Applications 快捷方式校验通过，SHA-256 与最终映像一致；103 项 Python 测试与 wheel／sdist 构建通过。映像根目录仅含应用与安装快捷方式，首次打开说明单独随 Release 提供，未改变系统安全设置。

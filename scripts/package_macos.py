@@ -104,7 +104,6 @@ def package(source):
         run('/usr/bin/codesign', '--force', '--sign', '-', '--timestamp=none',
             '--identifier', info['CFBundleIdentifier'], str(app))
         run('/usr/bin/codesign', '--verify', '--deep', '--strict', str(app))
-        (payload/'FIRST-OPEN.txt').write_text(OPENING, encoding='utf-8')
         # This install shortcut is intentionally outside the audited app bundle.
         (payload/'Applications').symlink_to('/Applications', target_is_directory=True)
         archive = stage/(name+'.dmg')
@@ -122,7 +121,6 @@ def package(source):
             run('/usr/bin/codesign', '--verify', '--deep', '--strict', str(restored))
             if not (mounted/'Applications').is_symlink() or (mounted/'Applications').readlink() != Path('/Applications'):
                 raise ValueError('Missing Applications install shortcut')
-            run('/usr/bin/cmp', str(payload/'FIRST-OPEN.txt'), str(mounted/'FIRST-OPEN.txt'))
         finally:
             run('/usr/bin/hdiutil', 'detach', str(mounted))
         with archive.open('rb') as stream:

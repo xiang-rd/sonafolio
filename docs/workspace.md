@@ -201,7 +201,7 @@ python3 -B scripts/package_macos.py
 
 默认读取 `dist/macos/Sonafolio.app`；也可用 `--app` 指定工作区内另一个 `.app`（例如 release 构建的输出）。脚本在临时副本中逐个签名 Mach-O 文件，再签名外层应用；不修改源应用，不访问钥匙串，不需要证书或联网。随后生成压缩 DMG，校验映像后只读挂载回验 `codesign --verify --deep --strict`，计算 SHA-256。已有同版本产物时拒绝覆盖，保留旧包后再重新打包。临时签名只验证代码完整性，没有 Apple 认证身份，不等于 Developer ID 签名或公证。
 
-产物在 `dist/releases/Sonafolio-<版本>-macos-arm64/`：DMG、`SHA256SUMS.txt`、`FIRST-OPEN.txt` 与 `release.json`。DMG 内含应用、Applications 拖拽快捷方式与打开说明，目标 Apple Silicon、macOS 14+。包内无用户录音、API 凭据或 ASR／说话人模型；第三方依赖可能包含其公共样例和辅助资源。打包器检查常见私有目录、配置与逃逸符号链接，不替代发行前依赖／许可证审查。
+产物在 `dist/releases/Sonafolio-<版本>-macos-arm64/`：DMG、`SHA256SUMS.txt`、`FIRST-OPEN.txt` 与 `release.json`。DMG 内含应用与 Applications 拖拽快捷方式，打开说明作为独立附件提供，目标 Apple Silicon、macOS 14+。包内无用户录音、API 凭据或 ASR／说话人模型；第三方依赖可能包含其公共样例和辅助资源。打包器检查常见私有目录、配置与逃逸符号链接，不替代发行前依赖／许可证审查。
 
 用户首次打开：打开 DMG，将应用拖入 Applications（应用程序），复制完成后推出映像，再从“应用程序”打开；若提示无法验证开发者或无法检查恶意软件，关闭提示，进入“系统设置 → 隐私与安全 → 仍要打开”，再按系统要求确认。只在确认下载来源可信时放行；受管理设备可能禁止此操作。系统提示随 macOS 版本变化，参见 [Apple 首次打开说明](https://support.apple.com/102445)。无需关闭全局 Gatekeeper，也不提供自动移除隔离属性的安装脚本。
 
